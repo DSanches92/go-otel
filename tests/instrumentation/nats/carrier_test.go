@@ -3,7 +3,7 @@ package nats_test
 import (
 	"testing"
 
-	natsotel "github.com/DSanches92/go-otel/instrumentation/nats"
+	natsotel "github.com/DSanches92/go-otel/src/instrumentation/nats"
 	"github.com/nats-io/nats.go"
 )
 
@@ -20,7 +20,7 @@ func TestCarrier_Set(test *testing.T) {
 
 		carrier.Set("traceparent", "00-abc123-def456-01")
 
-		got := msg.Header.Get("traceparent")
+		got := carrier.Get("traceparent")
 		if got != "00-abc123-def456-01" {
 			test.Errorf("esperado '00-abc123-def456-01', obtido '%s'", got)
 		}
@@ -33,7 +33,7 @@ func TestCarrier_Set(test *testing.T) {
 
 		carrier.Set("traceparent", "valor-novo")
 
-		got := msg.Header.Get("traceparent")
+		got := carrier.Get("traceparent")
 		if got != "valor-novo" {
 			test.Errorf("esperado 'valor-novo', obtido '%s'", got)
 		}
@@ -56,8 +56,8 @@ func TestCarrier_Set(test *testing.T) {
 func TestCarrier_Get(test *testing.T) {
 	test.Run("deve retornar o valor de uma chave existente", func(test *testing.T) {
 		msg := newMessageWithHeader()
-		msg.Header.Set("traceparent", "00-abc123-def456-01")
 		carrier := natsotel.NewCarrier(msg)
+		carrier.Set("traceparent", "00-abc123-def456-01")
 
 		got := carrier.Get("traceparent")
 

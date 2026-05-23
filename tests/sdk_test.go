@@ -50,10 +50,11 @@ func TestSDK_New(test *testing.T) {
 			gotel.WithTracing(),
 			gotel.WithInsecure(true),
 		)
-		defer sdk.Shutdown(context.Background())
 
 		if err != nil {
 			test.Errorf("não esperado erro, obtido '%s'", err)
+		} else {
+			defer sdk.Shutdown(context.Background())
 		}
 
 		if sdk == nil {

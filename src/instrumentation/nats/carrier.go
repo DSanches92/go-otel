@@ -29,7 +29,7 @@ func (carrier *Carrier) Get(key string) string {
 }
 
 func (carrier *Carrier) Set(key, value string) {
-	carrier.message.Header.Set(key, value)
+	carrier.message.Header.Set(textproto.CanonicalMIMEHeaderKey(key), value)
 }
 
 func (carrier *Carrier) Keys() []string {

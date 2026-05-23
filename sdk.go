@@ -99,3 +99,9 @@ func (sdk *SDK) initProviders() error {
 
 	return nil
 }
+
+// --- Providers
+
+func (sdk *SDK) TracerProvider() trace.TracerProvider {
+	return sdk.tracerProvider
+}
