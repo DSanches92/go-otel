@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  tests:
+    name: Testes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Baixar dependências
+        run: go mod download
+
+      - name: Verificar formatação
+        run: |
+          fmt=$(gofmt -l .)
+          if [ -n "$fmt" ]; then
+            echo "Arquivos fora do padrão gofmt:"
+            echo "$fmt"
+            exit 1
+          fi
+
+      - name: Análise estática (vet)
+        run: go vet ./...
+
+      - name: Rodar testes
+        run: go test ./... -v -race -coverprofile=coverage.out
+
+      - name: Exibir cobertura
+        run: go tool cover -func=coverage.out

@@ -1,4 +1,6 @@
-# go-otel
+# GO-OTEL
+
+[![CI](https://github.com/DSanches92/go-otel/actions/workflows/ci.yml/badge.svg)](https://github.com/DSanches92/go-otel/actions/workflows/ci.yml)
 
 Lib de observabilidade padronizada para aplicações Go, construída sobre o [OpenTelemetry SDK](https://opentelemetry.io/docs/languages/go/).
 
