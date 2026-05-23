@@ -226,8 +226,8 @@ go test ./http/... -v
 
 | Pacote | Versão | Uso |
 |--------|--------|-----|
-| `go.opentelemetry.io/otel` | v1.32.0 | SDK base |
-| `go.opentelemetry.io/otel/sdk` | v1.32.0 | Providers |
-| `go.opentelemetry.io/otel/exporters/otlp/...` | v1.32.0 | Exporters OTLP/gRPC |
-| `github.com/nats-io/nats.go` | v1.37.0 | Cliente NATS |
-| `google.golang.org/grpc` | v1.68.0 | Transporte gRPC |
+| `go.opentelemetry.io/otel` | v1.43.0 | SDK base |
+| `go.opentelemetry.io/otel/sdk` | v1.43.0 | Providers |
+| `go.opentelemetry.io/otel/exporters/otlp/...` | v1.43.0 | Exporters OTLP/gRPC |
+| `github.com/nats-io/nats.go` | v1.52.0 | Cliente NATS |
+| `google.golang.org/grpc` | v1.81.1 | Transporte gRPC |
