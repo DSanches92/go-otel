@@ -3,7 +3,7 @@ package nats_test
 import (
 	"testing"
 
-	natsotel "github.com/DSanches92/go-otel/src/instrumentation/nats"
+	natsotel "github.com/DSanches92/go-otel/src/nats"
 	"github.com/nats-io/nats.go"
 )
 

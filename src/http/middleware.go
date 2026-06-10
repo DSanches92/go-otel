@@ -1,6 +1,3 @@
-// Package http fornece middleware OpenTelemetry para aplicações HTTP.
-// Compatível com net/http padrão e qualquer framework que use http.Handler
-// como abstração (chi, gorilla/mux, etc).
 package http
 
 import (
@@ -12,8 +9,6 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
-
-// ---- Constantes de atributos
 
 const (
 	attrHTTPMethod     = attribute.Key("http.request.method")

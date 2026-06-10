@@ -1,5 +1,3 @@
-// Package nats fornece integração entre o OpenTelemetry e o NATS.
-// Permite propagar contexto de trace entre serviços via headers de mensagem.
 package nats
 
 import (

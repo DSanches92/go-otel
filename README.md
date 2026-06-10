@@ -4,7 +4,7 @@
 
 Lib de observabilidade padronizada para aplicações Go, construída sobre o [OpenTelemetry SDK](https://opentelemetry.io/docs/languages/go/).
 
-Centraliza a inicialização de **Traces**, **Métricas** e **Logs** via OTLP/gRPC, com suporte a microsserviços NATS e aplicações HTTP.
+Centraliza a inicialização de **Traces**, **Métricas** e **Logs** via OTLP/gRPC, com suporte a microsserviços NATS, aplicações HTTP e bancos de dados via `database/sql`.
 
 ```
 Sua aplicação Go
@@ -17,6 +17,8 @@ OTel Collector
       ├──► Prometheus      (métricas)
       └──► Grafana Loki    (logs)
 ```
+
+> Exemplos de uso em cenários reais estão disponíveis em [go-otel-examples](https://github.com/DSanches92/go-otel-examples).
 
 ---
 
@@ -100,7 +102,7 @@ O subpacote `nats` fornece um `TextMapCarrier` para propagar contexto de trace v
 ### Publicando (inject)
 
 ```go
-import natsotel "github.com/DSanches92/go-otel/nats"
+import natsotel "github.com/DSanches92/go-otel/src/nats"
 
 msg := &nats.Msg{Subject: "orders.created"}
 
@@ -142,7 +144,7 @@ cada request com spans, atributos semânticos e propagação de contexto.
 ### Uso com net/http
 
 ```go
-import httpgotel "github.com/DSanches92/go-otel/http"
+import httpgotel "github.com/DSanches92/go-otel/src/http"
 
 mux := http.NewServeMux()
 mux.HandleFunc("GET /orders", handleOrders)
@@ -161,40 +163,88 @@ r.Get("/orders", handleOrders)
 
 ---
 
+## Banco de dados (database/sql)
+
+O subpacote `sql` fornece um wrapper genérico sobre `database/sql` compatível
+com qualquer driver — Oracle, MySQL, PostgreSQL e outros.
+
+### O que é instrumentado automaticamente
+
+- `sql.query` — QueryContext em DB ou Tx
+- `sql.exec` — ExecContext em DB ou Tx
+- `sql.transaction.begin` — BeginTx
+- `sql.transaction.commit` — Tx.Commit
+- `sql.transaction.rollback` — Tx.Rollback
+### Uso
+
+```go
+import (
+    "database/sql"
+
+    _ "github.com/sijms/go-ora/v2"
+    sqlgotel "github.com/DSanches92/go-otel/src/sql"
+)
+
+sqlDB, _ := sql.Open("oracle", connString)
+
+database, err := sqlgotel.NewDatabase(sqlDB, sdk.Tracer(),
+    sqlgotel.WithDBSystem("oracle"),
+    sqlgotel.WithDBName("myschema"),
+    sqlgotel.WithServerAddress("oracle-host", 1521),
+    // sqlgotel.WithStatementRecording(true), // apenas para debug
+)
+
+rows, err := database.QueryContext(ctx, "SELECT * FROM orders WHERE id = :1", id)
+result, err := database.ExecContext(ctx, "INSERT INTO orders VALUES (:1)", id)
+
+tx, err := database.BeginTx(ctx, nil)
+defer tx.Rollback(ctx)
+err = tx.Commit(ctx)
+```
+
+### Segurança
+
+SQL e parâmetros **não são registrados por default** — habilite explicitamente apenas quando necessário:
+
+```go
+sqlgotel.WithStatementRecording(true)  // registra SQL
+sqlgotel.WithParameterRecording(true)  // registra parâmetros — nunca em produção
+```
+
+---
+
 ## Estrutura do projeto
 
 ```
 go-otel/
 ├── src/
-│   ├── examples/
-│   │   ├── http-gateway/      # Exemplo: API Gateway HTTP
-│   │   │   └── main.go
-│   │   └── nats-ms/           # Exemplo: microsserviço NATS
-│   │       └── main.go
-│   │
-│   └── instrumentation/
-│       ├── http/              # Middleware HTTP com spans automáticos
-│       │   ├── doc.go
-│       │   └── middleware.go
-│       └── nats/              # TextMapCarrier para headers NATS
-│           ├── doc.go
-│           └── carrier.go
+│   ├── http/              # Middleware HTTP com spans automáticos
+│   │   ├── doc.go
+│   │   └── middleware.go
+│   ├── nats/              # TextMapCarrier para headers NATS
+│   │   ├── doc.go
+│   │   └── carrier.go
+│   └── sql/              # Wrapper database/sql com spans automáticos
+│       ├── doc.go
+│       ├── database.go
+│       └── transaction.go
 │
 ├── tests/
-│   ├── instrumentation/
-│   │   ├── http/
-│   │   │   └── middleware_test.go
-│   │   └── nats/
-│   │       └── carrier_test.go
-│   ├── config_test.go
-│   └── sdk_test.go
+│   ├── http/
+│   │   └── middleware_test.go
+│   ├── nats/
+│   │   └── carrier_test.go
+│   ├── sql/
+│   │   └── database_test.go
+│   ├── otel_config_test.go
+│   └── otel_sdk_test.go
 │
 ├── doc.go                 # Documentação do pacote raiz
-├── config.go              # Configuração e functional options
-├── sdk.go                 # Ponto de entrada — New() e Shutdown()
-├── provider.go            # Inicialização dos providers OTel via OTLP/gRPC
 ├── go.mod
 ├── go.sum
+├── otel_config.go         # Configuração e functional options
+├── otel_provider.go       # Inicialização dos providers OTel via OTLP/gRPC
+├── otel_sdk.go            # Ponto de entrada — New() e Shutdown()
 └── README.md
 ```
 
@@ -204,32 +254,39 @@ go-otel/
 
 ```bash
 # Todos os testes
-go test ./... -v
+go test ./test/... -v
 
 # Apenas um pacote
-go test ./nats/... -v
-go test ./http/... -v
+go test ./test/http/... -v
+go test ./test/nats/... -v
+go test ./test/sql/... -v
 ```
 
 ---
 
 ## Variáveis de ambiente (exemplos)
 
-| Variável | Descrição | Default |
-|----------|-----------|---------|
-| `OTEL_COLLECTOR_ENDPOINT` | Endereço do Collector | `localhost:4317` |
-| `APP_ENV` | Ambiente (`development`, `production`) | `development` |
-| `NATS_URL` | URL do servidor NATS | `nats://localhost:4222` |
-| `HTTP_ADDR` | Endereço do servidor HTTP | `:8080` |
+| Variável                  | Descrição                              | Default                 |
+|---------------------------|----------------------------------------|-------------------------|
+| `OTEL_COLLECTOR_ENDPOINT` | Endereço do Collector                  | `localhost:4317`        |
+| `APP_ENV`                 | Ambiente (`development`, `production`) | `development`           |
+| `NATS_URL`                | URL do servidor NATS                   | `nats://localhost:4222` |
+| `HTTP_ADDR`               | Endereço do servidor HTTP              | `:8080`                 |
 
 ---
 
 ## Dependências principais
 
-| Pacote | Versão | Uso |
-|--------|--------|-----|
-| `go.opentelemetry.io/otel` | v1.43.0 | SDK base |
-| `go.opentelemetry.io/otel/sdk` | v1.43.0 | Providers |
-| `go.opentelemetry.io/otel/exporters/otlp/...` | v1.43.0 | Exporters OTLP/gRPC |
-| `github.com/nats-io/nats.go` | v1.52.0 | Cliente NATS |
-| `google.golang.org/grpc` | v1.81.1 | Transporte gRPC |
+| Pacote                                        | Versão  | Uso                 |
+|-----------------------------------------------|---------|---------------------|
+| `go.opentelemetry.io/otel`                    | v1.44.0 | SDK base            |
+| `go.opentelemetry.io/otel/sdk`                | v1.44.0 | Providers           |
+| `go.opentelemetry.io/otel/exporters/otlp/...` | v1.44.0 | Exporters OTLP/gRPC |
+| `github.com/nats-io/nats.go`                  | v1.52.0 | Cliente NATS        |
+| `google.golang.org/grpc`                      | v1.81.1 | Transporte gRPC     |
+
+---
+
+<p align="center">
+  Criado com ❤️ por <a href="https://github.com/DSanches92">Danilo Sanches</a>
+</p>

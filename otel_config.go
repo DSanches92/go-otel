@@ -5,15 +5,13 @@ import (
 	"time"
 )
 
-// ---- Erros Públicos
-
 var (
 	ErrServiceNameRequired       = errors.New("gotel: ServiceName é obrigatório")
 	ErrCollectorEndpointRequired = errors.New("gotel: CollectorEndpoint é obrigatório")
 	ErrAtLeastOneSignalRequired  = errors.New("gotel: ao menos um sinal deve ser habilitado (WithTracing, WithMetrics ou WithLogging)")
 )
 
-// ---- Configuração Default
+// ---- Configuração
 
 type Config struct {
 	ServiceName       string

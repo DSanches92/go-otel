@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	httpgotel "github.com/DSanches92/go-otel/src/instrumentation/http"
+	httpgotel "github.com/DSanches92/go-otel/src/http"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
