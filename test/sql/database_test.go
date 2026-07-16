@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 
@@ -17,7 +18,11 @@ import (
 type fakeDriver struct{ err error }
 type fakeConn struct{ err error }
 type fakeStmt struct{ err error }
-type fakeRows struct{ closed bool }
+type fakeRows struct {
+	closed  bool
+	calledN int
+}
+
 type fakeResult struct{}
 type fakeTx struct{}
 
@@ -46,15 +51,25 @@ func (statement *fakeStmt) Query(_ []driver.Value) (driver.Rows, error) {
 	}
 	return &fakeRows{}, nil
 }
-func (rows *fakeRows) Columns() []string                { return []string{"id"} }
-func (rows *fakeRows) Close() error                     { return nil }
-func (rows *fakeRows) Next(_ []driver.Value) error      { return io.EOF }
+func (rows *fakeRows) Columns() []string { return []string{"id"} }
+func (rows *fakeRows) Close() error      { return nil }
+func (rows *fakeRows) Next(values []driver.Value) error {
+	if rows.calledN > 0 {
+		return io.EOF
+	}
+	rows.calledN++
+	values[0] = int64(1)
+	return nil
+}
 func (result *fakeResult) LastInsertId() (int64, error) { return 1, nil }
 func (result *fakeResult) RowsAffected() (int64, error) { return 1, nil }
 func (transaction *fakeTx) Commit() error               { return nil }
 func (transaction *fakeTx) Rollback() error             { return nil }
 
-var driverRegistered = false
+var (
+	driverRegistered = false
+	errDriverIdx     = 0
+)
 
 func newSQLDB(test *testing.T) *sql.DB {
 	test.Helper()
@@ -79,7 +94,8 @@ func newSQLDB(test *testing.T) *sql.DB {
 func newSQLDBWithError(test *testing.T, err error) *sql.DB {
 	test.Helper()
 
-	nome := "fakedb-err-" + err.Error()
+	errDriverIdx++
+	nome := fmt.Sprintf("fakedb-err-%d", errDriverIdx)
 	sql.Register(nome, &fakeDriver{err: err})
 
 	database, _ := sql.Open(nome, "")
@@ -448,6 +464,28 @@ func TestTx_QueryContext(test *testing.T) {
 	})
 }
 
+func TestTx_QueryRowContext(test *testing.T) {
+	test.Run("deve retornar Row sem erro dentro da transação", func(test *testing.T) {
+		provider, _ := newTracerProviderInMemory(test)
+		sqlDB := newSQLDB(test)
+		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
+			sqlgotel.WithDBSystem("oracle"),
+		)
+
+		transaction, _ := database.BeginTx(context.Background(), nil)
+		defer transaction.Rollback(context.Background())
+
+		row, err := transaction.QueryRowContext(context.Background(), "SELECT 1 FROM dual")
+		if err != nil {
+			test.Fatalf("não esperado erro, obtido '%s'", err)
+		}
+		var id int
+		if err := row.Scan(&id); err != nil {
+			test.Fatalf("não esperado erro no Scan, obtido '%s'", err)
+		}
+	})
+}
+
 func TestTx_ExecContext(test *testing.T) {
 	test.Run("deve criar span com nome sql.exec dentro da transação", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
@@ -473,6 +511,75 @@ func TestTx_ExecContext(test *testing.T) {
 		}
 		if !nameFound {
 			test.Error("esperado span 'sql.exec' dentro da transação")
+		}
+	})
+}
+
+func TestDB_QueryRowContext(test *testing.T) {
+	test.Run("deve retornar Row sem erro para query válida", func(test *testing.T) {
+		provider, _ := newTracerProviderInMemory(test)
+		sqlDB := newSQLDB(test)
+		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
+			sqlgotel.WithDBSystem("oracle"),
+		)
+
+		row, err := database.QueryRowContext(context.Background(), "SELECT 1 FROM dual")
+		if err != nil {
+			test.Fatalf("não esperado erro, obtido '%s'", err)
+		}
+		var id int
+		if err := row.Scan(&id); err != nil {
+			test.Fatalf("não esperado erro no Scan, obtido '%s'", err)
+		}
+		if id != 1 {
+			test.Errorf("esperado 1, obtido %d", id)
+		}
+	})
+
+	test.Run("deve criar span sql.query com Scan", func(test *testing.T) {
+		provider, recorder := newTracerProviderInMemory(test)
+		sqlDB := newSQLDB(test)
+		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
+			sqlgotel.WithDBSystem("oracle"),
+		)
+
+		row, _ := database.QueryRowContext(context.Background(), "SELECT 1 FROM dual")
+		var id int
+		_ = row.Scan(&id)
+
+		spans := recorder.Ended()
+		if len(spans) != 1 {
+			test.Fatalf("esperado 1 span, obtido %d", len(spans))
+		}
+		if spans[0].Name() != "sql.query" {
+			test.Errorf("esperado 'sql.query', obtido '%s'", spans[0].Name())
+		}
+	})
+
+	test.Run("deve retornar erro quando query falha", func(test *testing.T) {
+		provider, recorder := newTracerProviderInMemory(test)
+		sqlDB := newSQLDBWithError(test, errors.New("connection refused"))
+		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
+			sqlgotel.WithDBSystem("oracle"),
+		)
+
+		row, err := database.QueryRowContext(context.Background(), "SELECT 1 FROM dual")
+		if err == nil {
+			test.Fatal("esperado erro")
+		}
+		if row != nil {
+			test.Error("esperado Row nil quando há erro")
+		}
+
+		spans := recorder.Ended()
+		if len(spans) != 1 {
+			test.Fatalf("esperado 1 span, obtido %d", len(spans))
+		}
+		if spans[0].Name() != "sql.query" {
+			test.Errorf("esperado 'sql.query', obtido '%s'", spans[0].Name())
+		}
+		if spans[0].Status().Code != codes.Error {
+			test.Error("esperado span com código de erro")
 		}
 	})
 }

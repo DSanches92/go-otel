@@ -123,6 +123,21 @@ func (database *Database) QueryContext(ctx context.Context, query string, args .
 	return rows, nil
 }
 
+func (database *Database) QueryRowContext(ctx context.Context, query string, args ...any) (*Row, error) {
+	ctx, span := database.startSpan(ctx, "sql.query")
+	defer span.End()
+
+	database.setQueryAttributes(span, query, args)
+
+	rows, err := database.database.QueryContext(ctx, query, args...)
+	if err != nil {
+		recordError(span, err)
+		return nil, err
+	}
+
+	return &Row{rows: rows}, nil
+}
+
 func (database *Database) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	ctx, span := database.startSpan(ctx, "sql.exec")
 	defer span.End()
@@ -189,6 +204,28 @@ func (database *Database) setQueryAttributes(span trace.Span, query string, args
 func recordError(span trace.Span, err error) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, err.Error())
+}
+
+type Row struct {
+	rows *sql.Rows
+}
+
+func (row *Row) Scan(dest ...any) error {
+	defer row.rows.Close()
+
+	if !row.rows.Next() {
+		if err := row.rows.Err(); err != nil {
+			return err
+		}
+		return sql.ErrNoRows
+	}
+
+	err := row.rows.Scan(dest...)
+	if err != nil {
+		return err
+	}
+
+	return row.rows.Close()
 }
 
 func extractOperation(query string) string {
