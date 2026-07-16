@@ -3,9 +3,12 @@ package http
 import (
 	"fmt"
 	"net/http"
+	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -19,30 +22,92 @@ const (
 
 const statusErroBoundary = http.StatusBadRequest
 
-// ---- Middleware
-
-func NewMiddleware(provider trace.TracerProvider) func(http.Handler) http.Handler {
-	tracer := provider.Tracer("gotel/http")
-	propagator := propagation.NewCompositeTextMapPropagator(
+var defaultPropagator = sync.OnceValue(func() propagation.TextMapPropagator {
+	return propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	)
+})
+
+type config struct {
+	routeResolver func(*http.Request) string
+	meter         metric.Meter
+}
+
+type Option func(*config)
+
+func WithRouteResolver(fn func(*http.Request) string) Option {
+	return func(c *config) {
+		c.routeResolver = fn
+	}
+}
+
+func WithMeter(meter metric.Meter) Option {
+	return func(c *config) {
+		c.meter = meter
+	}
+}
+
+func NewMiddleware(provider trace.TracerProvider, opts ...Option) func(http.Handler) http.Handler {
+	cfg := &config{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	tracer := provider.Tracer("gotel/http")
+	propagator := defaultPropagator()
+
+	var metrics *Metrics
+	if cfg.meter != nil {
+		var err error
+		metrics, err = NewMetrics(cfg.meter)
+		if err != nil {
+			metrics = nil
+		}
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 			ctx := propagator.Extract(req.Context(), propagation.HeaderCarrier(req.Header))
 
-			spanName := fmt.Sprintf("%s %s", req.Method, req.URL.Path)
+			route := req.URL.Path
+			if cfg.routeResolver != nil {
+				route = cfg.routeResolver(req)
+			}
+
+			spanName := fmt.Sprintf("%s %s", req.Method, route)
 			ctx, span := tracer.Start(ctx, spanName)
 			defer span.End()
 
 			span.SetAttributes(
 				attrHTTPMethod.String(req.Method),
 				attrURLPath.String(req.URL.Path),
+				attrHTTPRoute.String(route),
 			)
 
 			resWriter := newResponseWriter(writer)
+
+			var start time.Time
+			if metrics != nil {
+				metrics.InFlight.Add(ctx, 1)
+				start = time.Now()
+			}
+
 			next.ServeHTTP(resWriter, req.WithContext(ctx))
+
+			if metrics != nil {
+				metrics.InFlight.Add(ctx, -1)
+				duration := time.Since(start).Seconds()
+
+				attrs := metric.WithAttributes(
+					attrHTTPMethod.String(req.Method),
+					attrHTTPStatusCode.Int(resWriter.status),
+					attrHTTPRoute.String(route),
+				)
+
+				metrics.RequestCount.Add(ctx, 1, attrs)
+				metrics.RequestDuration.Record(ctx, duration, attrs)
+			}
 
 			span.SetAttributes(
 				attrHTTPStatusCode.Int(resWriter.status),
@@ -54,8 +119,6 @@ func NewMiddleware(provider trace.TracerProvider) func(http.Handler) http.Handle
 		})
 	}
 }
-
-// ---- ResponseWriter
 
 type responseWriter struct {
 	http.ResponseWriter

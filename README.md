@@ -1,6 +1,9 @@
 # GO-OTEL
 
+[![Go](https://img.shields.io/badge/Go-1.26.4-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Go Reference](https://img.shields.io/badge/pkg.go.dev-reference-00ADD8?logo=go&logoColor=white)](https://pkg.go.dev/github.com/DSanches92/go-otel)
 [![CI](https://github.com/DSanches92/go-otel/actions/workflows/ci.yml/badge.svg)](https://github.com/DSanches92/go-otel/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/DSanches92/go-otel)](https://goreportcard.com/report/github.com/DSanches92/go-otel)
 
 Lib de observabilidade padronizada para aplicações Go, construída sobre o [OpenTelemetry SDK](https://opentelemetry.io/docs/languages/go/).
 
@@ -33,23 +36,40 @@ go get github.com/DSanches92/go-otel
 ## Início rápido
 
 ```go
-sdk, err := gotel.New(
-    gotel.WithServiceName("orders-ms"),
-    gotel.WithCollectorEndpoint("otel-collector:4317"),
-    gotel.WithServiceVersion("1.0.0"),
-    gotel.WithEnvironment("production"),
-    gotel.WithTracing(),
-    gotel.WithMetrics(),
-    gotel.WithLogging(),
-)
-if err != nil {
-    log.Fatal(err)
-}
-defer sdk.Shutdown(context.Background())
+package main
 
-tracer := sdk.Tracer()
-meter  := sdk.Meter()
-logger := sdk.Logger()
+import (
+    "context"
+    "log"
+    "log/slog"
+
+    gotel "github.com/DSanches92/go-otel"
+)
+
+func main() {
+    ctx := context.Background()
+
+    sdk, err := gotel.New(
+        gotel.WithServiceName("orders-api"),
+        gotel.WithEnvironment("production"),
+        gotel.WithCollectorEndpoint("otel-collector:4317"),
+        gotel.WithTracing(),
+        gotel.WithMetrics(),
+        gotel.WithLogging(),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer sdk.Shutdown(ctx)
+
+    // Integração com slog — trace_id e span_id em todo log
+    slog.SetDefault(sdk.SlogLogger())
+
+    tracer := sdk.Tracer()
+    meter  := sdk.Meter()
+    _      = meter // usado para métricas customizadas
+    _      = tracer
+}
 ```
 
 ---
@@ -71,6 +91,8 @@ logger := sdk.Logger()
 | `WithEnvironment(env)` | Ambiente de execução | `"development"` |
 | `WithTimeout(duration)` | Timeout de conexão com o Collector | `5s` |
 | `WithInsecure(bool)` | Desabilita TLS — apenas para desenvolvimento | `false` |
+| `WithSampler(sampler)` | Amostragem de traces | `trace.AlwaysSample()` |
+| `WithEnvConfig()` | Lê `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `APP_ENV`, `OTEL_INSECURE` do ambiente | — |
 
 ### Sinais
 
@@ -93,72 +115,257 @@ Em desenvolvimento, habilite o modo inseguro explicitamente:
 gotel.WithInsecure(true)
 ```
 
+### Amostragem (sampling)
+
+Use `WithSampler` para controlar o volume de traces enviados ao Collector:
+
+```go
+gotel.WithSampler(trace.TraceIDRatioBased(0.1))    // 10% dos traces
+gotel.WithSampler(trace.AlwaysSample())             // 100% (default)
+gotel.WithSampler(trace.NeverSample())              // nenhum
+```
+
+### Configuração via ambiente
+
+Com `WithEnvConfig()`, as opções são lidas automaticamente de variáveis de ambiente:
+
+```go
+sdk, _ := gotel.New(
+    gotel.WithEnvConfig(),
+    gotel.WithTracing(),
+    gotel.WithMetrics(),
+    gotel.WithLogging(),
+)
+```
+
+| Variável | Mapeamento |
+|----------|------------|
+| `OTEL_SERVICE_NAME` | `WithServiceName(...)` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `WithCollectorEndpoint(...)` |
+| `APP_ENV` | `WithEnvironment(...)` |
+| `OTEL_INSECURE` | `WithInsecure(true)` |
+
+### Integração com slog
+
+```go
+slog.SetDefault(sdk.SlogLogger())
+
+// Todo log carrega trace_id e span_id automaticamente:
+slog.InfoContext(ctx, "order created", "order_id", 42)
+// {"time":"...","level":"INFO","msg":"order created","order_id":42,"trace_id":"...","span_id":"..."}
+```
+
+---
+
+## Microsserviço HTTP
+
+O subpacote `http` fornece middleware e client instrumentation.
+
+### Middleware (server-side)
+
+O middleware instrumenta automaticamente cada request com spans, atributos semânticos e propagação de contexto:
+
+- Nome do span: `"GET /orders"` (método + rota)
+- Atributos: `http.request.method`, `url.path`, `http.response.status_code`, `http.route`
+- Status de erro: span marcado como `Error` para status `>= 400`
+- Propagação: extrai contexto W3C TraceContext de headers de entrada
+
+```go
+import httpgotel "github.com/DSanches92/go-otel/internal/http"
+
+mux := http.NewServeMux()
+mux.HandleFunc("GET /orders", handleOrders)
+mux.HandleFunc("POST /orders", handleCreate)
+
+handler := httpgotel.NewMiddleware(sdk.Tracer(),
+    httpgotel.WithMeter(sdk.Meter()),
+    httpgotel.WithRouteResolver(func(r *http.Request) string {
+        return r.Method + " " + r.URL.Path
+    }),
+)(mux)
+
+http.ListenAndServe(":8080", handler)
+```
+
+#### WithMeter — métricas HTTP
+
+Quando `WithMeter` é fornecido, o middleware registra automaticamente:
+
+- `http.server.request_count` — contador por method, route, status_code
+- `http.server.request_duration_seconds` — latência em buckets (5ms–10s)
+- `http.server.requests_in_flight` — gauge ativo (incrementa na chegada, decrementa na resposta)
+
+### Client-side
+
+```go
+import httpgotel "github.com/DSanches92/go-otel/internal/http"
+
+client := &http.Client{
+    Transport: httpgotel.NewTransport(sdk.Tracer(),
+        httpgotel.WithTransport(http.DefaultTransport),
+    ),
+}
+
+// Toda chamada client.Do() cria um span filho, injeta traceparent,
+// e marca erro para respostas >= 400
+resp, err := client.Get("https://api.example.com/orders")
+```
+
+### Exemplo completo — API REST
+
+```go
+package main
+
+import (
+    "context"
+    "log/slog"
+    "net/http"
+    "os/signal"
+    "syscall"
+
+    gotel "github.com/DSanches92/go-otel"
+    httpgotel "github.com/DSanches92/go-otel/internal/http"
+)
+
+func main() {
+    ctx, cancel := signal.NotifyContext(
+        context.Background(), syscall.SIGINT, syscall.SIGTERM,
+    )
+    defer cancel()
+
+    sdk, _ := gotel.New(
+        gotel.WithEnvConfig(),
+        gotel.WithServiceName("orders-api"),
+        gotel.WithTracing(), gotel.WithMetrics(), gotel.WithLogging(),
+    )
+    defer sdk.Shutdown(ctx)
+    slog.SetDefault(sdk.SlogLogger())
+
+    mux := http.NewServeMux()
+    mux.HandleFunc("GET /orders", handleList)
+    mux.HandleFunc("POST /orders", handleCreate)
+
+    handler := httpgotel.NewMiddleware(sdk.Tracer(),
+        httpgotel.WithMeter(sdk.Meter()),
+    )(mux)
+
+    slog.InfoContext(ctx, "server starting", "addr", ":8080")
+    http.ListenAndServe(":8080", handler)
+}
+
+func handleList(w http.ResponseWriter, r *http.Request) {
+    // span ativo com contexto propagado
+    slog.InfoContext(r.Context(), "listing orders")
+    w.Write([]byte("[]"))
+}
+
+func handleCreate(w http.ResponseWriter, r *http.Request) {
+    slog.InfoContext(r.Context(), "creating order")
+    w.WriteHeader(http.StatusCreated)
+}
+```
+
 ---
 
 ## Microsserviço NATS
 
-O subpacote `nats` fornece um `TextMapCarrier` para propagar contexto de trace via headers de mensagem NATS.
+O subpacote `nats` fornece um middleware de alto nível que cria spans automaticamente ao publicar e consumir mensagens, além de propagar o contexto de tracing entre serviços.
 
-### Publicando (inject)
-
-```go
-import natsotel "github.com/DSanches92/go-otel/src/nats"
-
-msg := &nats.Msg{Subject: "orders.created"}
-
-carrier := natsotel.NewCarrier(msg)
-propagator.Inject(ctx, carrier)
-
-nc.PublishMsg(msg)
-```
-
-### Consumindo (extract)
+### Subscribe com span automático
 
 ```go
-nc.Subscribe("orders.created", func(msg *nats.Msg) {
-    carrier := natsotel.NewCarrier(msg)
-    ctx := propagator.Extract(context.Background(), carrier)
+import natsotel "github.com/DSanches92/go-otel/internal/nats"
 
-    ctx, span := tracer.Start(ctx, "orders.created.processar")
-    defer span.End()
+nt := natsotel.NewTracer(sdk.Tracer())
 
-    // span é filho do span do publicador
+nt.Subscribe(nc, "orders.created", func(ctx context.Context, msg *nats.Msg) {
+    // span "SUBSCRIBE orders.created" criado automaticamente
+    // ctx carrega o contexto propagado do publicador
+
+    slog.InfoContext(ctx, "processing order", "subject", msg.Subject)
+    //                           trace_id e span_id propagados ↑
+
+    // Chamadas aninhadas são filhos do span atual:
+    db.QueryContext(ctx, "UPDATE orders SET status = $1", "processed")
 })
 ```
 
----
-
-## API Gateway HTTP
-
-O subpacote `http` fornece um middleware que instrumenta automaticamente
-cada request com spans, atributos semânticos e propagação de contexto.
-
-### O que é instrumentado automaticamente
-
-- Nome do span: `"MÉTODO /rota"` — ex: `"GET /orders"`
-- `http.request.method` — método HTTP
-- `url.path` — caminho da URL
-- `http.response.status_code` — status code da resposta
-- Status de erro — marcado automaticamente para status `>= 400`
-
-### Uso com net/http
+### Publicação com contexto
 
 ```go
-import httpgotel "github.com/DSanches92/go-otel/src/http"
-
-mux := http.NewServeMux()
-mux.HandleFunc("GET /orders", handleOrders)
-
-handler := httpgotel.NewMiddleware(provider)(mux)
-http.ListenAndServe(":8080", handler)
+nt.Publish(ctx, nc, "orders.shipped", data)
+// "PUBLISH orders.shipped" — span criado, traceparent injetado nos headers
 ```
 
-### Uso com chi
+### Queue Subscribe
 
 ```go
-r := chi.NewRouter()
-r.Use(httpgotel.NewMiddleware(provider))
-r.Get("/orders", handleOrders)
+nt.QueueSubscribe(nc, "orders.created", "workers", handler)
+// span "SUBSCRIBE orders.created [workers]"
+```
+
+### Exemplo completo — Processador de eventos
+
+```go
+package main
+
+import (
+    "context"
+    "log/slog"
+    "os/signal"
+    "syscall"
+
+    gotel "github.com/DSanches92/go-otel"
+    natsotel "github.com/DSanches92/go-otel/internal/nats"
+    sqlgotel "github.com/DSanches92/go-otel/internal/sql"
+    "github.com/nats-io/nats.go"
+)
+
+func main() {
+    ctx, cancel := signal.NotifyContext(
+        context.Background(), syscall.SIGINT, syscall.SIGTERM,
+    )
+    defer cancel()
+
+    sdk, _ := gotel.New(
+        gotel.WithEnvConfig(),
+        gotel.WithServiceName("order-processor"),
+        gotel.WithTracing(), gotel.WithMetrics(), gotel.WithLogging(),
+    )
+    defer sdk.Shutdown(ctx)
+    slog.SetDefault(sdk.SlogLogger())
+
+    nc, _ := nats.Connect(nats.DefaultURL)
+    defer nc.Close()
+
+    db, _ := sqlgotel.NewDatabase(
+        openDB(), sdk.Tracer(),
+        sqlgotel.WithDBSystem("postgresql"),
+        sqlgotel.WithServerAddress("localhost", 5432),
+    )
+
+    nt := natsotel.NewTracer(sdk.Tracer())
+
+    nt.QueueSubscribe(nc, "orders.created", "workers",
+        func(ctx context.Context, msg *nats.Msg) {
+            // span + contexto propagados automaticamente
+            db.ExecContext(ctx, "INSERT INTO events ...")
+        },
+    )
+
+    <-ctx.Done()
+    slog.Info("shutting down")
+}
+```
+
+### Propagação manual (nível mais baixo)
+
+Caso precise do controle manual, o `TextMapCarrier` segue disponível:
+
+```go
+carrier := natsotel.NewCarrier(msg)
+propagator.Inject(ctx, carrier)   // publicador
+propagator.Extract(ctx, carrier)  // consumidor
 ```
 
 ---
@@ -175,6 +382,9 @@ com qualquer driver — Oracle, MySQL, PostgreSQL e outros.
 - `sql.transaction.begin` — BeginTx
 - `sql.transaction.commit` — Tx.Commit
 - `sql.transaction.rollback` — Tx.Rollback
+- Atributos semânticos: `db.system`, `db.name`, `server.address`, `server.port`
+- Operação extraída automaticamente (SELECT, INSERT, CREATE, WITH, CALL etc.)
+
 ### Uso
 
 ```go
@@ -182,7 +392,7 @@ import (
     "database/sql"
 
     _ "github.com/sijms/go-ora/v2"
-    sqlgotel "github.com/DSanches92/go-otel/src/sql"
+    sqlgotel "github.com/DSanches92/go-otel/internal/sql"
 )
 
 sqlDB, _ := sql.Open("oracle", connString)
@@ -191,7 +401,6 @@ database, err := sqlgotel.NewDatabase(sqlDB, sdk.Tracer(),
     sqlgotel.WithDBSystem("oracle"),
     sqlgotel.WithDBName("myschema"),
     sqlgotel.WithServerAddress("oracle-host", 1521),
-    // sqlgotel.WithStatementRecording(true), // apenas para debug
 )
 
 rows, err := database.QueryContext(ctx, "SELECT * FROM orders WHERE id = :1", id)
@@ -204,10 +413,10 @@ err = tx.Commit(ctx)
 
 ### Segurança
 
-SQL e parâmetros **não são registrados por default** — habilite explicitamente apenas quando necessário:
+SQL e parâmetros **não são registrados por default** — habilite apenas quando necessário:
 
 ```go
-sqlgotel.WithStatementRecording(true)  // registra SQL
+sqlgotel.WithStatementRecording(true)  // registra a SQL
 sqlgotel.WithParameterRecording(true)  // registra parâmetros — nunca em produção
 ```
 
@@ -217,27 +426,36 @@ sqlgotel.WithParameterRecording(true)  // registra parâmetros — nunca em prod
 
 ```
 go-otel/
-├── src/
-│   ├── http/              # Middleware HTTP com spans automáticos
+├── internal/
+│   ├── http/              # Middleware HTTP, client tracing e métricas
 │   │   ├── doc.go
+│   │   ├── middleware.go
+│   │   ├── client.go
+│   │   └── metrics.go
+│   ├── nats/              # TextMapCarrier e middleware com spans automáticos
+│   │   ├── doc.go
+│   │   ├── carrier.go
 │   │   └── middleware.go
-│   ├── nats/              # TextMapCarrier para headers NATS
-│   │   ├── doc.go
-│   │   └── carrier.go
-│   └── sql/              # Wrapper database/sql com spans automáticos
+│   └── sql/               # Wrapper database/sql com spans automáticos
 │       ├── doc.go
 │       ├── database.go
 │       └── transaction.go
 │
-├── tests/
+├── test/
 │   ├── http/
-│   │   └── middleware_test.go
+│   │   ├── main_test.go
+│   │   ├── middleware_test.go
+│   │   └── client_test.go
 │   ├── nats/
-│   │   └── carrier_test.go
+│   │   ├── main_test.go
+│   │   ├── carrier_test.go
+│   │   └── middleware_test.go
 │   ├── sql/
+│   │   ├── main_test.go
 │   │   └── database_test.go
+│   ├── main_test.go
 │   ├── otel_config_test.go
-│   └── otel_sdk_test.go
+│   └── otel_config_env_test.go
 │
 ├── doc.go                 # Documentação do pacote raiz
 ├── go.mod
@@ -254,36 +472,39 @@ go-otel/
 
 ```bash
 # Todos os testes
-go test ./test/... -v
+go test ./test/... -count=1 -v
 
 # Apenas um pacote
-go test ./test/http/... -v
-go test ./test/nats/... -v
-go test ./test/sql/... -v
+go test ./test/http/... -count=1 -v
+go test ./test/nats/... -count=1 -v
+go test ./test/sql/... -count=1 -v
+go test . -count=1 -v
 ```
 
 ---
 
-## Variáveis de ambiente (exemplos)
+## Variáveis de ambiente
 
-| Variável                  | Descrição                              | Default                 |
-|---------------------------|----------------------------------------|-------------------------|
-| `OTEL_COLLECTOR_ENDPOINT` | Endereço do Collector                  | `localhost:4317`        |
-| `APP_ENV`                 | Ambiente (`development`, `production`) | `development`           |
-| `NATS_URL`                | URL do servidor NATS                   | `nats://localhost:4222` |
-| `HTTP_ADDR`               | Endereço do servidor HTTP              | `:8080`                 |
+| Variável | Descrição | Default |
+|----------|-----------|---------|
+| `OTEL_SERVICE_NAME` | Nome do serviço | — |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Endereço do Collector | `localhost:4317` |
+| `OTEL_INSECURE` | Desabilita TLS | `false` |
+| `APP_ENV` | Ambiente (`development`, `production`) | `development` |
+| `NATS_URL` | URL do servidor NATS | `nats://localhost:4222` |
+| `HTTP_ADDR` | Endereço do servidor HTTP | `:8080` |
 
 ---
 
 ## Dependências principais
 
-| Pacote                                        | Versão  | Uso                 |
-|-----------------------------------------------|---------|---------------------|
-| `go.opentelemetry.io/otel`                    | v1.44.0 | SDK base            |
-| `go.opentelemetry.io/otel/sdk`                | v1.44.0 | Providers           |
+| Pacote | Versão | Uso |
+|--------|--------|-----|
+| `go.opentelemetry.io/otel` | v1.44.0 | SDK base |
+| `go.opentelemetry.io/otel/sdk` | v1.44.0 | Providers |
 | `go.opentelemetry.io/otel/exporters/otlp/...` | v1.44.0 | Exporters OTLP/gRPC |
-| `github.com/nats-io/nats.go`                  | v1.52.0 | Cliente NATS        |
-| `google.golang.org/grpc`                      | v1.81.1 | Transporte gRPC     |
+| `github.com/nats-io/nats.go` | v1.52.0 | Cliente NATS |
+| `google.golang.org/grpc` | v1.81.1 | Transporte gRPC |
 
 ---
 

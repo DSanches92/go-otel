@@ -5,8 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	httpgotel "github.com/DSanches92/go-otel/src/http"
-	"go.opentelemetry.io/otel/attribute"
+	httpgotel "github.com/DSanches92/go-otel/internal/http"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -29,22 +28,6 @@ func handlerWithStatus(status int) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		writer.WriteHeader(status)
 	}
-}
-
-func executeRequest(
-	test *testing.T,
-	middleware func(http.Handler) http.Handler,
-	method, path string,
-	handler http.Handler,
-) []sdktrace.ReadOnlySpan {
-	test.Helper()
-
-	req := httptest.NewRequest(method, path, nil)
-	rec := httptest.NewRecorder()
-
-	middleware(handler).ServeHTTP(rec, req)
-
-	return nil
 }
 
 // ---- Criação do Span
@@ -224,6 +207,46 @@ func TestMiddleware_Propagation(test *testing.T) {
 	})
 }
 
+// ---- HTTP Route
+
+func TestMiddleware_Route(test *testing.T) {
+	test.Run("deve registrar http.route no span", func(test *testing.T) {
+		provider, recorder := newTracerProviderInMemory(test)
+		middleware := httpgotel.NewMiddleware(provider,
+			httpgotel.WithRouteResolver(func(req *http.Request) string {
+				return "/orders/{id}"
+			}),
+		)
+
+		req := httptest.NewRequest(http.MethodGet, "/orders/123", nil)
+		rec := httptest.NewRecorder()
+
+		middleware(handlerWithStatus(http.StatusOK)).ServeHTTP(rec, req)
+
+		span := recorder.Ended()[0]
+		assertAttribute(test, span, "http.route", "/orders/{id}")
+	})
+
+	test.Run("deve usar o padrão resolvido como nome do span", func(test *testing.T) {
+		provider, recorder := newTracerProviderInMemory(test)
+		middleware := httpgotel.NewMiddleware(provider,
+			httpgotel.WithRouteResolver(func(req *http.Request) string {
+				return "/orders/{id}"
+			}),
+		)
+
+		req := httptest.NewRequest(http.MethodGet, "/orders/42", nil)
+		rec := httptest.NewRecorder()
+
+		middleware(handlerWithStatus(http.StatusOK)).ServeHTTP(rec, req)
+
+		span := recorder.Ended()[0]
+		if span.Name() != "GET /orders/{id}" {
+			test.Errorf("esperado 'GET /orders/{id}', obtido '%s'", span.Name())
+		}
+	})
+}
+
 // ---- Compatibilidade
 
 func TestMiddleware_Compatibility(test *testing.T) {
@@ -288,19 +311,4 @@ func assertAttributeInt(test *testing.T, span sdktrace.ReadOnlySpan, chave strin
 	test.Errorf("atributo '%s' não encontrado no span", chave)
 }
 
-func ensurePresentAttribute(test *testing.T, span sdktrace.ReadOnlySpan, chave string) {
-	test.Helper()
 
-	for _, attr := range span.Attributes() {
-		if string(attr.Key) == chave {
-			return
-		}
-	}
-
-	test.Errorf("atributo '%s' não encontrado no span", chave)
-}
-
-// evitarWarningDeUnusedFunction garante que o compilador não reclame
-// de funções helper declaradas mas usadas apenas em testes futuros.
-var _ = attribute.String
-var _ = ensurePresentAttribute

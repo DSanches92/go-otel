@@ -6,8 +6,6 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// ---- Carrier
-
 type Carrier struct {
 	message *nats.Msg
 }
@@ -19,8 +17,6 @@ func NewCarrier(message *nats.Msg) *Carrier {
 
 	return &Carrier{message: message}
 }
-
-// ---- Interface TextMapCarrier
 
 func (carrier *Carrier) Get(key string) string {
 	return carrier.message.Header.Get(textproto.CanonicalMIMEHeaderKey(key))

@@ -8,7 +8,7 @@ import (
 	"io"
 	"testing"
 
-	sqlgotel "github.com/DSanches92/go-otel/src/sql"
+	sqlgotel "github.com/DSanches92/go-otel/internal/sql"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -69,6 +69,10 @@ func newSQLDB(test *testing.T) *sql.DB {
 		test.Fatalf("setup: falha ao abrir fakedb: %v", err)
 	}
 
+	test.Cleanup(func() {
+		_ = database.Close()
+	})
+
 	return database
 }
 
@@ -79,6 +83,10 @@ func newSQLDBWithError(test *testing.T, err error) *sql.DB {
 	sql.Register(nome, &fakeDriver{err: err})
 
 	database, _ := sql.Open(nome, "")
+	test.Cleanup(func() {
+		_ = database.Close()
+	})
+
 	return database
 }
 

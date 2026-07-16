@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/log/noop"
 	"go.opentelemetry.io/otel/metric"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/trace"
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
+	"google.golang.org/grpc"
 )
 
 // ---- SDK
@@ -20,6 +23,7 @@ type SDK struct {
 	tracerProvider    trace.TracerProvider
 	metricProvider    metric.MeterProvider
 	loggerProvider    log.LoggerProvider
+	conn              *grpc.ClientConn
 	shutdownFunctions []shutdownFunc
 }
 
@@ -53,8 +57,14 @@ func New(options ...Option) (*SDK, error) {
 func (sdk *SDK) Shutdown(ctx context.Context) error {
 	var errs []error
 
-	for _, function := range sdk.shutdownFunctions {
-		if err := function(ctx); err != nil {
+	for _, fn := range sdk.shutdownFunctions {
+		if err := fn(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if sdk.conn != nil {
+		if err := sdk.conn.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -76,23 +86,41 @@ func (sdk *SDK) Logger() log.Logger {
 	return sdk.loggerProvider.Logger(sdk.config.ServiceName)
 }
 
+func (sdk *SDK) SlogLogger() *slog.Logger {
+	return otelslog.NewLogger(
+		sdk.config.ServiceName,
+		otelslog.WithLoggerProvider(sdk.loggerProvider),
+		otelslog.WithVersion(sdk.config.ServiceVersion),
+	)
+}
+
 // ---- Inicialização Interna
 
 func (sdk *SDK) initProviders() error {
+	if !sdk.config.TracingEnabled && !sdk.config.MetricsEnabled && !sdk.config.LoggingEnabled {
+		return nil
+	}
+
+	conn, err := sdk.newGRPCConnection()
+	if err != nil {
+		return err
+	}
+	sdk.conn = conn
+
 	if sdk.config.TracingEnabled {
-		if err := sdk.initTracerProvider(); err != nil {
+		if err := sdk.initTracerProvider(conn); err != nil {
 			return fmt.Errorf("tracer provider: %w", err)
 		}
 	}
 
 	if sdk.config.MetricsEnabled {
-		if err := sdk.initMetricProvider(); err != nil {
+		if err := sdk.initMetricProvider(conn); err != nil {
 			return fmt.Errorf("metric provider: %w", err)
 		}
 	}
 
 	if sdk.config.LoggingEnabled {
-		if err := sdk.initLoggerProvider(); err != nil {
+		if err := sdk.initLoggerProvider(conn); err != nil {
 			return fmt.Errorf("logger provider: %w", err)
 		}
 	}

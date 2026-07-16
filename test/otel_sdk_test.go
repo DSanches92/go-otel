@@ -20,6 +20,10 @@ func sdkWithValidTracing(test *testing.T) *gotel.SDK {
 		test.Fatalf("setup: não esperado erro ao criar SDK, obtido '%s'", err)
 	}
 
+	test.Cleanup(func() {
+		_ = sdk.Shutdown(context.Background())
+	})
+
 	return sdk
 }
 
@@ -54,7 +58,9 @@ func TestSDK_New(test *testing.T) {
 		if err != nil {
 			test.Errorf("não esperado erro, obtido '%s'", err)
 		} else {
-			defer sdk.Shutdown(context.Background())
+			test.Cleanup(func() {
+				_ = sdk.Shutdown(context.Background())
+			})
 		}
 
 		if sdk == nil {
@@ -91,7 +97,6 @@ func TestSDK_Shutdown(test *testing.T) {
 func TestSDK_Tracer(test *testing.T) {
 	test.Run("deve retornar tracer válido quando tracing está habilitado", func(test *testing.T) {
 		sdk := sdkWithValidTracing(test)
-		defer sdk.Shutdown(context.Background())
 
 		tracer := sdk.Tracer()
 
@@ -110,7 +115,9 @@ func TestSDK_Tracer(test *testing.T) {
 		if err != nil {
 			test.Fatalf("setup: não esperado erro, obtido '%s'", err)
 		}
-		defer sdk.Shutdown(context.Background())
+		test.Cleanup(func() {
+			_ = sdk.Shutdown(context.Background())
+		})
 
 		tracer := sdk.Tracer()
 
@@ -131,7 +138,9 @@ func TestSDK_Metric(test *testing.T) {
 		if err != nil {
 			test.Fatalf("setup: não esperado erro, obtido '%s'", err)
 		}
-		defer sdk.Shutdown(context.Background())
+		test.Cleanup(func() {
+			_ = sdk.Shutdown(context.Background())
+		})
 
 		metric := sdk.Metric()
 
@@ -142,7 +151,6 @@ func TestSDK_Metric(test *testing.T) {
 
 	test.Run("deve retornar noop metric quando estiver desabilitado", func(test *testing.T) {
 		sdk := sdkWithValidTracing(test)
-		defer sdk.Shutdown(context.Background())
 
 		metric := sdk.Metric()
 
@@ -163,7 +171,9 @@ func TestSDK_Logger(test *testing.T) {
 		if err != nil {
 			test.Fatalf("setup: não esperado erro, obtido '%s'", err)
 		}
-		defer sdk.Shutdown(context.Background())
+		test.Cleanup(func() {
+			_ = sdk.Shutdown(context.Background())
+		})
 
 		logger := sdk.Logger()
 
@@ -174,7 +184,6 @@ func TestSDK_Logger(test *testing.T) {
 
 	test.Run("deve retornar noop logger quando logging está desabilitado", func(test *testing.T) {
 		sdk := sdkWithValidTracing(test)
-		defer sdk.Shutdown(context.Background())
 
 		logger := sdk.Logger()
 

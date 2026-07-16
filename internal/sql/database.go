@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -12,8 +13,8 @@ import (
 )
 
 var (
-	ErrDBNil            = errors.New("sqlgotel: sql.DB não pode ser nil")
-	ErrDBSystemRequired = errors.New("sqlgotel: WithDBSystem é obrigatório")
+	ErrDBNil            = errors.New("sqlgotel: sql.DB must not be nil")
+	ErrDBSystemRequired = errors.New("sqlgotel: WithDBSystem is required")
 )
 
 const (
@@ -25,8 +26,6 @@ const (
 	attrServerAddr   = attribute.Key("server.address")
 	attrServerPort   = attribute.Key("server.port")
 )
-
-// ---- Configuração
 
 type config struct {
 	dbSystem           string
@@ -70,8 +69,6 @@ func WithParameterRecording(enabled bool) Option {
 	}
 }
 
-// ---- Database
-
 type Database struct {
 	database *sql.DB
 	tracer   trace.Tracer
@@ -99,8 +96,6 @@ func NewDB(database *sql.DB, tracer trace.Tracer, opts ...Option) (*Database, er
 	}, nil
 }
 
-// ---- Assessores
-
 func (database *Database) StatementRecording() bool {
 	return database.config.statementRecording
 }
@@ -113,9 +108,7 @@ func (database *Database) Unwrap() *sql.DB {
 	return database.database
 }
 
-// ---- QueryContext
-
-func (database *Database) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (database *Database) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	ctx, span := database.startSpan(ctx, "sql.query")
 	defer span.End()
 
@@ -130,9 +123,7 @@ func (database *Database) QueryContext(ctx context.Context, query string, args .
 	return rows, nil
 }
 
-// ---- ExecContext
-
-func (database *Database) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+func (database *Database) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	ctx, span := database.startSpan(ctx, "sql.exec")
 	defer span.End()
 
@@ -147,8 +138,6 @@ func (database *Database) ExecContext(ctx context.Context, query string, args ..
 	return result, nil
 }
 
-// ---- BeginTx
-
 func (database *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Transaction, error) {
 	_, span := database.startSpan(ctx, "sql.transaction.begin")
 	defer span.End()
@@ -161,8 +150,6 @@ func (database *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tr
 
 	return &Transaction{transaction: transaction, database: database}, nil
 }
-
-// ---- Helpers internos
 
 func (database *Database) startSpan(ctx context.Context, name string) (context.Context, trace.Span) {
 	ctx, span := database.tracer.Start(ctx, name)
@@ -178,7 +165,7 @@ func (database *Database) startSpan(ctx context.Context, name string) (context.C
 	if database.config.serverAddress != "" {
 		attrs = append(attrs,
 			attrServerAddr.String(database.config.serverAddress),
-			attrServerPort.String(fmt.Sprintf("%d", database.config.serverPort)),
+			attrServerPort.Int(database.config.serverPort),
 		)
 	}
 
@@ -187,7 +174,7 @@ func (database *Database) startSpan(ctx context.Context, name string) (context.C
 	return ctx, span
 }
 
-func (database *Database) setQueryAttributes(span trace.Span, query string, args []interface{}) {
+func (database *Database) setQueryAttributes(span trace.Span, query string, args []any) {
 	span.SetAttributes(attrDBOperation.String(extractOperation(query)))
 
 	if database.config.statementRecording {
@@ -205,19 +192,15 @@ func recordError(span trace.Span, err error) {
 }
 
 func extractOperation(query string) string {
-	if len(query) < 6 {
+	tokens := strings.Fields(query)
+	if len(tokens) == 0 {
 		return "UNKNOWN"
 	}
 
-	switch query[:6] {
-	case "SELECT", "select":
-		return "SELECT"
-	case "INSERT", "insert":
-		return "INSERT"
-	case "UPDATE", "update":
-		return "UPDATE"
-	case "DELETE", "delete":
-		return "DELETE"
+	switch strings.ToUpper(tokens[0]) {
+	case "SELECT", "INSERT", "UPDATE", "DELETE",
+		"WITH", "CALL", "MERGE", "REPLACE", "TRUNCATE":
+		return tokens[0]
 	default:
 		return "UNKNOWN"
 	}

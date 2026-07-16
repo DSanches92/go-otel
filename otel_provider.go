@@ -26,7 +26,7 @@ func (sdk *SDK) newResource() (*resource.Resource, error) {
 			semconv.SchemaURL,
 			semconv.ServiceName(sdk.config.ServiceName),
 			semconv.ServiceVersion(sdk.config.ServiceVersion),
-			semconv.DeploymentName(sdk.config.Environment),
+			semconv.DeploymentEnvironmentNameKey.String(sdk.config.Environment),
 		),
 	)
 }
@@ -47,7 +47,7 @@ func (sdk *SDK) newGRPCConnection() (*grpc.ClientConn, error) {
 		grpc.WithTransportCredentials(transportCredentials),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("falha ao conectar ao collector '%s': %w", sdk.config.CollectorEndpoint, err)
+		return nil, fmt.Errorf("connecting to collector '%s': %w", sdk.config.CollectorEndpoint, err)
 	}
 
 	return conn, nil
@@ -55,15 +55,10 @@ func (sdk *SDK) newGRPCConnection() (*grpc.ClientConn, error) {
 
 // ---- Tracer Provider
 
-func (sdk *SDK) initTracerProvider() error {
-	conn, err := sdk.newGRPCConnection()
-	if err != nil {
-		return err
-	}
-
+func (sdk *SDK) initTracerProvider(conn *grpc.ClientConn) error {
 	res, err := sdk.newResource()
 	if err != nil {
-		return fmt.Errorf("falha ao criar resource: %w", err)
+		return fmt.Errorf("creating resource: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), sdk.config.Timeout)
@@ -71,13 +66,16 @@ func (sdk *SDK) initTracerProvider() error {
 
 	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
 	if err != nil {
-		return fmt.Errorf("falha ao criar trace exporter: %w", err)
+		return fmt.Errorf("creating trace exporter: %w", err)
 	}
 
-	provider := trace.NewTracerProvider(
-		trace.WithBatcher(exporter),
-		trace.WithResource(res),
-	)
+	var tOpts []trace.TracerProviderOption
+	tOpts = append(tOpts, trace.WithBatcher(exporter), trace.WithResource(res))
+	if sdk.config.Sampler != nil {
+		tOpts = append(tOpts, trace.WithSampler(sdk.config.Sampler))
+	}
+
+	provider := trace.NewTracerProvider(tOpts...)
 
 	sdk.tracerProvider = provider
 	sdk.shutdownFunctions = append(sdk.shutdownFunctions, provider.Shutdown)
@@ -87,15 +85,10 @@ func (sdk *SDK) initTracerProvider() error {
 
 // ---- Metric Provider
 
-func (sdk *SDK) initMetricProvider() error {
-	conn, err := sdk.newGRPCConnection()
-	if err != nil {
-		return err
-	}
-
+func (sdk *SDK) initMetricProvider(conn *grpc.ClientConn) error {
 	res, err := sdk.newResource()
 	if err != nil {
-		return fmt.Errorf("falha ao criar resource: %w", err)
+		return fmt.Errorf("creating resource: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), sdk.config.Timeout)
@@ -103,7 +96,7 @@ func (sdk *SDK) initMetricProvider() error {
 
 	exporter, err := otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithGRPCConn(conn))
 	if err != nil {
-		return fmt.Errorf("falha ao criar metric exporter: %w", err)
+		return fmt.Errorf("creating metric exporter: %w", err)
 	}
 
 	provider := metric.NewMeterProvider(
@@ -119,15 +112,10 @@ func (sdk *SDK) initMetricProvider() error {
 
 // ---- Logger Provider
 
-func (sdk *SDK) initLoggerProvider() error {
-	conn, err := sdk.newGRPCConnection()
-	if err != nil {
-		return err
-	}
-
+func (sdk *SDK) initLoggerProvider(conn *grpc.ClientConn) error {
 	res, err := sdk.newResource()
 	if err != nil {
-		return fmt.Errorf("falha ao criar resource: %w", err)
+		return fmt.Errorf("creating resource: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), sdk.config.Timeout)
@@ -135,7 +123,7 @@ func (sdk *SDK) initLoggerProvider() error {
 
 	exporter, err := otlploggrpc.New(ctx, otlploggrpc.WithGRPCConn(conn))
 	if err != nil {
-		return fmt.Errorf("falha ao criar log exporter: %w", err)
+		return fmt.Errorf("creating log exporter: %w", err)
 	}
 
 	provider := log.NewLoggerProvider(
