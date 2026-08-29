@@ -36,6 +36,12 @@ jobs:
       - name: Análise estática (vet)
         run: go vet ./...
 
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
       - name: Rodar testes
         run: go test ./... -v -race -coverprofile=coverage.out
 

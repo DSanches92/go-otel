@@ -66,11 +66,13 @@ func main() {
     slog.SetDefault(sdk.SlogLogger())
 
     tracer := sdk.Tracer()
-    meter  := sdk.Meter()
+    meter  := sdk.Metric()
     _      = meter // usado para métricas customizadas
     _      = tracer
 }
 ```
+
+> Além dos acessores de sinal (`Tracer()`, `Metric()`, `Logger()`, `SlogLogger()`), o SDK também expõe os providers "crus" — `TracerProvider()`, `MeterProvider()` e `LoggerProvider()` — úteis para passar a outras libs que esperem um `trace.TracerProvider`/`metric.MeterProvider`/`log.LoggerProvider` diretamente.
 
 ---
 
@@ -159,7 +161,7 @@ slog.InfoContext(ctx, "order created", "order_id", 42)
 
 ## Microsserviço HTTP
 
-O subpacote `http` fornece middleware e client instrumentation.
+O subpacote `otelhttp` fornece middleware e client instrumentation.
 
 ### Middleware (server-side)
 
@@ -171,21 +173,26 @@ O middleware instrumenta automaticamente cada request com spans, atributos semâ
 - Propagação: extrai contexto W3C TraceContext de headers de entrada
 
 ```go
-import httpgotel "github.com/DSanches92/go-otel/internal/http"
+import "github.com/DSanches92/go-otel/otelhttp"
 
 mux := http.NewServeMux()
 mux.HandleFunc("GET /orders", handleOrders)
 mux.HandleFunc("POST /orders", handleCreate)
 
-handler := httpgotel.NewMiddleware(sdk.Tracer(),
-    httpgotel.WithMeter(sdk.Meter()),
-    httpgotel.WithRouteResolver(func(r *http.Request) string {
+middleware, err := otelhttp.NewMiddleware(sdk.Tracer(),
+    otelhttp.WithMeter(sdk.Metric()),
+    otelhttp.WithRouteResolver(func(r *http.Request) string {
         return r.Method + " " + r.URL.Path
     }),
-)(mux)
+)
+if err != nil {
+    log.Fatal(err)
+}
 
-http.ListenAndServe(":8080", handler)
+http.ListenAndServe(":8080", middleware(mux))
 ```
+
+> `NewMiddleware` retorna erro quando `WithMeter` é usado e a criação dos instrumentos de métrica falha — trate-o na inicialização, não em runtime.
 
 #### WithMeter — métricas HTTP
 
@@ -198,11 +205,11 @@ Quando `WithMeter` é fornecido, o middleware registra automaticamente:
 ### Client-side
 
 ```go
-import httpgotel "github.com/DSanches92/go-otel/internal/http"
+import "github.com/DSanches92/go-otel/otelhttp"
 
 client := &http.Client{
-    Transport: httpgotel.NewTransport(sdk.Tracer(),
-        httpgotel.WithTransport(http.DefaultTransport),
+    Transport: otelhttp.NewTransport(sdk.Tracer(),
+        otelhttp.WithRoundTripper(http.DefaultTransport),
     ),
 }
 
@@ -218,13 +225,14 @@ package main
 
 import (
     "context"
+    "log"
     "log/slog"
     "net/http"
     "os/signal"
     "syscall"
 
     gotel "github.com/DSanches92/go-otel"
-    httpgotel "github.com/DSanches92/go-otel/internal/http"
+    "github.com/DSanches92/go-otel/otelhttp"
 )
 
 func main() {
@@ -245,12 +253,15 @@ func main() {
     mux.HandleFunc("GET /orders", handleList)
     mux.HandleFunc("POST /orders", handleCreate)
 
-    handler := httpgotel.NewMiddleware(sdk.Tracer(),
-        httpgotel.WithMeter(sdk.Meter()),
-    )(mux)
+    middleware, err := otelhttp.NewMiddleware(sdk.Tracer(),
+        otelhttp.WithMeter(sdk.Metric()),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
 
     slog.InfoContext(ctx, "server starting", "addr", ":8080")
-    http.ListenAndServe(":8080", handler)
+    http.ListenAndServe(":8080", middleware(mux))
 }
 
 func handleList(w http.ResponseWriter, r *http.Request) {
@@ -269,14 +280,14 @@ func handleCreate(w http.ResponseWriter, r *http.Request) {
 
 ## Microsserviço NATS
 
-O subpacote `nats` fornece um middleware de alto nível que cria spans automaticamente ao publicar e consumir mensagens, além de propagar o contexto de tracing entre serviços.
+O subpacote `otelnats` fornece um middleware de alto nível que cria spans automaticamente ao publicar e consumir mensagens, além de propagar o contexto de tracing entre serviços.
 
 ### Subscribe com span automático
 
 ```go
-import natsotel "github.com/DSanches92/go-otel/internal/nats"
+import "github.com/DSanches92/go-otel/otelnats"
 
-nt := natsotel.NewTracer(sdk.Tracer())
+nt := otelnats.NewTracer(sdk.Tracer())
 
 nt.Subscribe(nc, "orders.created", func(ctx context.Context, msg *nats.Msg) {
     // span "SUBSCRIBE orders.created" criado automaticamente
@@ -316,8 +327,8 @@ import (
     "syscall"
 
     gotel "github.com/DSanches92/go-otel"
-    natsotel "github.com/DSanches92/go-otel/internal/nats"
-    sqlgotel "github.com/DSanches92/go-otel/internal/sql"
+    "github.com/DSanches92/go-otel/otelnats"
+    "github.com/DSanches92/go-otel/otelsql"
     "github.com/nats-io/nats.go"
 )
 
@@ -338,13 +349,13 @@ func main() {
     nc, _ := nats.Connect(nats.DefaultURL)
     defer nc.Close()
 
-    db, _ := sqlgotel.NewDatabase(
+    db, _ := otelsql.NewDB(
         openDB(), sdk.Tracer(),
-        sqlgotel.WithDBSystem("postgresql"),
-        sqlgotel.WithServerAddress("localhost", 5432),
+        otelsql.WithDBSystem("postgresql"),
+        otelsql.WithServerAddress("localhost", 5432),
     )
 
-    nt := natsotel.NewTracer(sdk.Tracer())
+    nt := otelnats.NewTracer(sdk.Tracer())
 
     nt.QueueSubscribe(nc, "orders.created", "workers",
         func(ctx context.Context, msg *nats.Msg) {
@@ -363,7 +374,7 @@ func main() {
 Caso precise do controle manual, o `TextMapCarrier` segue disponível:
 
 ```go
-carrier := natsotel.NewCarrier(msg)
+carrier := otelnats.NewCarrier(msg)
 propagator.Inject(ctx, carrier)   // publicador
 propagator.Extract(ctx, carrier)  // consumidor
 ```
@@ -372,18 +383,18 @@ propagator.Extract(ctx, carrier)  // consumidor
 
 ## Banco de dados (database/sql)
 
-O subpacote `sql` fornece um wrapper genérico sobre `database/sql` compatível
+O subpacote `otelsql` fornece um wrapper genérico sobre `database/sql` compatível
 com qualquer driver — Oracle, MySQL, PostgreSQL e outros.
 
 ### O que é instrumentado automaticamente
 
-- `sql.query` — QueryContext em DB ou Tx
-- `sql.exec` — ExecContext em DB ou Tx
+- `sql.query` — QueryContext/QueryRowContext em Database ou Transaction
+- `sql.exec` — ExecContext em Database ou Transaction
 - `sql.transaction.begin` — BeginTx
-- `sql.transaction.commit` — Tx.Commit
-- `sql.transaction.rollback` — Tx.Rollback
+- `sql.transaction.commit` — Transaction.Commit
+- `sql.transaction.rollback` — Transaction.Rollback
 - Atributos semânticos: `db.system`, `db.name`, `server.address`, `server.port`
-- Operação extraída automaticamente (SELECT, INSERT, CREATE, WITH, CALL etc.)
+- Operação extraída automaticamente (SELECT, INSERT, UPDATE, DELETE, WITH, CALL, MERGE, REPLACE, TRUNCATE, CREATE, ALTER, DROP)
 
 ### Uso
 
@@ -392,18 +403,19 @@ import (
     "database/sql"
 
     _ "github.com/sijms/go-ora/v2"
-    sqlgotel "github.com/DSanches92/go-otel/internal/sql"
+    "github.com/DSanches92/go-otel/otelsql"
 )
 
 sqlDB, _ := sql.Open("oracle", connString)
 
-database, err := sqlgotel.NewDatabase(sqlDB, sdk.Tracer(),
-    sqlgotel.WithDBSystem("oracle"),
-    sqlgotel.WithDBName("myschema"),
-    sqlgotel.WithServerAddress("oracle-host", 1521),
+database, err := otelsql.NewDB(sqlDB, sdk.Tracer(),
+    otelsql.WithDBSystem("oracle"),
+    otelsql.WithDBName("myschema"),
+    otelsql.WithServerAddress("oracle-host", 1521),
 )
 
 rows, err := database.QueryContext(ctx, "SELECT * FROM orders WHERE id = :1", id)
+row, err := database.QueryRowContext(ctx, "SELECT name FROM orders WHERE id = :1", id)
 result, err := database.ExecContext(ctx, "INSERT INTO orders VALUES (:1)", id)
 
 tx, err := database.BeginTx(ctx, nil)
@@ -416,8 +428,8 @@ err = tx.Commit(ctx)
 SQL e parâmetros **não são registrados por default** — habilite apenas quando necessário:
 
 ```go
-sqlgotel.WithStatementRecording(true)  // registra a SQL
-sqlgotel.WithParameterRecording(true)  // registra parâmetros — nunca em produção
+otelsql.WithStatementRecording(true)  // registra a SQL
+otelsql.WithParameterRecording(true)  // registra parâmetros — nunca em produção
 ```
 
 ---
@@ -426,43 +438,45 @@ sqlgotel.WithParameterRecording(true)  // registra parâmetros — nunca em prod
 
 ```
 go-otel/
-├── internal/
-│   ├── http/              # Middleware HTTP, client tracing e métricas
-│   │   ├── doc.go
-│   │   ├── middleware.go
-│   │   ├── client.go
-│   │   └── metrics.go
-│   ├── nats/              # TextMapCarrier e middleware com spans automáticos
-│   │   ├── doc.go
-│   │   ├── carrier.go
-│   │   └── middleware.go
-│   └── sql/               # Wrapper database/sql com spans automáticos
-│       ├── doc.go
-│       ├── database.go
-│       └── transaction.go
+├── otelhttp/               # Middleware HTTP, client tracing e métricas
+│   ├── doc.go
+│   ├── middleware.go
+│   ├── client.go
+│   └── metrics.go
+├── otelnats/               # TextMapCarrier e middleware com spans automáticos
+│   ├── doc.go
+│   ├── carrier.go
+│   └── middleware.go
+├── otelsql/                # Wrapper database/sql com spans automáticos
+│   ├── doc.go
+│   ├── database.go
+│   └── transaction.go
 │
 ├── test/
-│   ├── http/
+│   ├── otelhttp/
 │   │   ├── main_test.go
 │   │   ├── middleware_test.go
 │   │   └── client_test.go
-│   ├── nats/
+│   ├── otelnats/
 │   │   ├── main_test.go
 │   │   ├── carrier_test.go
 │   │   └── middleware_test.go
-│   ├── sql/
+│   ├── otelsql/
 │   │   ├── main_test.go
 │   │   └── database_test.go
 │   ├── main_test.go
 │   ├── otel_config_test.go
-│   └── otel_config_env_test.go
+│   ├── otel_config_env_test.go
+│   └── otel_sdk_test.go
 │
-├── doc.go                 # Documentação do pacote raiz
+├── doc.go                  # Documentação do pacote raiz
 ├── go.mod
 ├── go.sum
-├── otel_config.go         # Configuração e functional options
-├── otel_provider.go       # Inicialização dos providers OTel via OTLP/gRPC
-├── otel_sdk.go            # Ponto de entrada — New() e Shutdown()
+├── otel_config.go          # Configuração e functional options
+├── otel_provider.go        # Inicialização dos providers OTel via OTLP/gRPC
+├── otel_sdk.go              # Ponto de entrada — New() e Shutdown()
+├── CHANGELOG.md
+├── .golangci.yml
 └── README.md
 ```
 
@@ -475,9 +489,9 @@ go-otel/
 go test ./test/... -count=1 -v
 
 # Apenas um pacote
-go test ./test/http/... -count=1 -v
-go test ./test/nats/... -count=1 -v
-go test ./test/sql/... -count=1 -v
+go test ./test/otelhttp/... -count=1 -v
+go test ./test/otelnats/... -count=1 -v
+go test ./test/otelsql/... -count=1 -v
 go test . -count=1 -v
 ```
 
