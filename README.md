@@ -4,6 +4,7 @@
 [![Go Reference](https://img.shields.io/badge/pkg.go.dev-reference-00ADD8?logo=go&logoColor=white)](https://pkg.go.dev/github.com/DSanches92/go-otel)
 [![CI](https://github.com/DSanches92/go-otel/actions/workflows/ci.yml/badge.svg)](https://github.com/DSanches92/go-otel/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/DSanches92/go-otel)](https://goreportcard.com/report/github.com/DSanches92/go-otel)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Lib de observabilidade padronizada para aplicações Go, construída sobre o [OpenTelemetry SDK](https://opentelemetry.io/docs/languages/go/).
 
@@ -30,6 +31,31 @@ OTel Collector
 ```bash
 go get github.com/DSanches92/go-otel
 ```
+
+---
+
+## Requisitos
+
+- **Go 1.26+** (versão mínima definida em `go.mod`).
+- Um **OpenTelemetry Collector** acessível pela aplicação, recebendo OTLP/gRPC
+  (porta padrão `4317`) e roteando para os backends que você usa (Tempo,
+  Prometheus, Loki, ou equivalentes). A lib fala apenas com o Collector — ela
+  não exporta diretamente para os backends.
+
+Para rodar um Collector localmente durante o desenvolvimento, um `docker-compose.yml` mínimo:
+
+```yaml
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otel-collector.yaml
+    ports:
+      - "4317:4317" # OTLP/gRPC
+```
+
+> Exemplos completos de configuração do Collector (`otel-collector.yaml`) e docker-compose com Tempo/Prometheus/Loki estão em [go-otel-examples](https://github.com/DSanches92/go-otel-examples).
 
 ---
 
@@ -476,6 +502,7 @@ go-otel/
 ├── otel_provider.go        # Inicialização dos providers OTel via OTLP/gRPC
 ├── otel_sdk.go              # Ponto de entrada — New() e Shutdown()
 ├── CHANGELOG.md
+├── LICENSE
 ├── .golangci.yml
 └── README.md
 ```
@@ -519,6 +546,80 @@ go test . -count=1 -v
 | `go.opentelemetry.io/otel/exporters/otlp/...` | v1.44.0 | Exporters OTLP/gRPC |
 | `github.com/nats-io/nats.go` | v1.52.0 | Cliente NATS |
 | `google.golang.org/grpc` | v1.81.1 | Transporte gRPC |
+
+---
+
+## Troubleshooting
+
+| Sintoma | Causa provável | Solução |
+|---------|-----------------|---------|
+| `gotel: at least one signal must be enabled` | Nenhum `WithTracing()`/`WithMetrics()`/`WithLogging()` foi passado | Habilite ao menos um sinal em `gotel.New(...)` |
+| `gotel: ServiceName is required` / `CollectorEndpoint is required` | `WithServiceName`/`WithCollectorEndpoint` não foram fornecidos (nem via `WithEnvConfig()`) | Passe a opção explicitamente ou defina `OTEL_SERVICE_NAME`/`OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Erro de handshake TLS ao conectar no Collector local | Por padrão a conexão usa TLS (`Insecure = false`), mas o Collector local não tem certificado configurado | Use `gotel.WithInsecure(true)` (ou `OTEL_INSECURE=true`) — apenas em desenvolvimento |
+| `New()` retorna sucesso, mas nenhum dado chega no Collector | `grpc.NewClient` não conecta de imediato — falhas de rede só aparecem ao tentar exportar (ex: no `Shutdown`) | Confirme que o Collector está no ar e acessível no endereço configurado; verifique o erro retornado por `sdk.Shutdown(ctx)` |
+| Logs não aparecem com `trace_id`/`span_id` | `slog.SetDefault(sdk.SlogLogger())` não foi chamado, ou o log foi emitido sem contexto (`slog.Info` em vez de `slog.InfoContext`) | Use sempre as variantes `*Context` do `slog` (`InfoContext`, `ErrorContext`, etc.) passando o `ctx` do span ativo |
+| `otelhttp.NewMiddleware` retorna erro | Falha ao criar os instrumentos de métrica (`WithMeter`) — normalmente conflito de nome/descrição de instrumento no `Meter` compartilhado | Verifique se o mesmo `meter.Meter` não está sendo usado para registrar instrumentos com o mesmo nome e unidades/descrições diferentes em outro lugar |
+
+---
+
+## Versionamento e compatibilidade
+
+Esta lib ainda está **pré-1.0** (`v0.x`) — breaking changes podem ocorrer em releases menores, sempre documentadas no [`CHANGELOG.md`](CHANGELOG.md). Após a primeira tag `v1.0.0`, passa a seguir [SemVer](https://semver.org/) estrito.
+
+### Migrando de versões anteriores
+
+Se você usava a lib antes desta rodada de mudanças (pacotes ainda em `internal/`):
+
+- Troque os imports de `github.com/DSanches92/go-otel/internal/{http,nats,sql}` para
+  `github.com/DSanches92/go-otel/otel{http,nats,sql}` — e pode remover o alias
+  (`httpgotel`, `natsotel`, `sqlgotel`), já que o nome do pacote agora é único.
+- `sqlgotel.NewDatabase(...)` virou `otelsql.NewDB(...)`.
+- `httpgotel.WithTransport(...)` virou `otelhttp.WithRoundTripper(...)`.
+- `sdk.Meter()` virou `sdk.Metric()`.
+- `otelhttp.NewMiddleware(...)` agora retorna `(func(http.Handler) http.Handler, error)`
+  em vez de só o handler — trate o erro na inicialização:
+
+  ```go
+  // antes
+  handler := httpgotel.NewMiddleware(sdk.Tracer())
+
+  // depois
+  middleware, err := otelhttp.NewMiddleware(sdk.Tracer())
+  if err != nil {
+      log.Fatal(err)
+  }
+  handler := middleware(mux)
+  ```
+
+Veja a seção `[Unreleased]` do [`CHANGELOG.md`](CHANGELOG.md) para a lista completa.
+
+---
+
+## Contribuindo
+
+1. Clone o repositório e rode os testes antes de abrir um PR:
+
+   ```bash
+   go build ./...
+   go vet ./...
+   gofmt -l .              # deve retornar vazio
+   go test ./... -race
+   ```
+
+2. Rode o lint localmente (mesma config usada no CI):
+
+   ```bash
+   go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
+   ```
+
+3. Commits seguem [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `refactor:`, `docs:`, `ci:` etc.).
+4. Mudanças que alteram comportamento público devem atualizar o [`CHANGELOG.md`](CHANGELOG.md) na seção `[Unreleased]`.
+
+---
+
+## Licença
+
+Distribuído sob a licença MIT. Veja [`LICENSE`](LICENSE) para o texto completo.
 
 ---
 
