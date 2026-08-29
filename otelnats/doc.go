@@ -1,4 +1,4 @@
-// Package nats fornece integração entre o OpenTelemetry e o NATS.
+// Package otelnats fornece integração entre o OpenTelemetry e o NATS.
 //
 // Implementa a interface [go.opentelemetry.io/otel/propagation.TextMapCarrier]
 // para mensagens NATS, permitindo propagar contexto de trace entre
@@ -15,7 +15,7 @@
 // Ao publicar, injete o contexto do trace ativo nos headers da mensagem:
 //
 //	msg := &nats.Msg{Subject: "orders.created"}
-//	carrier := natsotel.NewCarrier(msg)
+//	carrier := otelnats.NewCarrier(msg)
 //	propagator.Inject(ctx, carrier)
 //	nc.PublishMsg(msg)
 //
@@ -24,15 +24,21 @@
 // Ao consumir, extraia o contexto dos headers para continuar o trace:
 //
 //	nc.Subscribe("orders.created", func(msg *nats.Msg) {
-//	    carrier := natsotel.NewCarrier(msg)
+//	    carrier := otelnats.NewCarrier(msg)
 //	    ctx := propagator.Extract(context.Background(), carrier)
 //	    ctx, span := tracer.Start(ctx, "processar-pedido")
 //	    defer span.End()
 //	    // span é automaticamente filho do span do publicador
 //	})
 //
+// # Tracer
+//
+// Para não gerenciar carrier/propagator manualmente, use [Tracer], que
+// envolve Subscribe, QueueSubscribe e Publish com criação de span e
+// propagação de contexto automáticas.
+//
 // # Segurança
 //
 // O Carrier inicializa o Header da mensagem automaticamente se for nil,
 // garantindo que nenhuma operação cause panic por nil pointer.
-package nats
+package otelnats

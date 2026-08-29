@@ -44,6 +44,7 @@
 //
 // O pacote gotel é complementado por subpacotes de instrumentação:
 //
-//   - [github.com/DSanches92/go-otel/nats] — propagação de contexto via NATS headers
-//   - [github.com/DSanches92/go-otel/http]  — middleware HTTP com spans automáticos
+//   - [github.com/DSanches92/go-otel/otelhttp] — middleware HTTP com spans automáticos
+//   - [github.com/DSanches92/go-otel/otelnats] — propagação de contexto via NATS headers
+//   - [github.com/DSanches92/go-otel/otelsql]  — instrumentação de database/sql
 package gotel

@@ -2,13 +2,16 @@ package gotel
 
 import (
 	"errors"
+	"os"
 	"time"
+
+	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 var (
-	ErrServiceNameRequired       = errors.New("gotel: ServiceName é obrigatório")
-	ErrCollectorEndpointRequired = errors.New("gotel: CollectorEndpoint é obrigatório")
-	ErrAtLeastOneSignalRequired  = errors.New("gotel: ao menos um sinal deve ser habilitado (WithTracing, WithMetrics ou WithLogging)")
+	ErrServiceNameRequired       = errors.New("gotel: ServiceName is required")
+	ErrCollectorEndpointRequired = errors.New("gotel: CollectorEndpoint is required")
+	ErrAtLeastOneSignalRequired  = errors.New("gotel: at least one signal must be enabled (WithTracing, WithMetrics or WithLogging)")
 )
 
 // ---- Configuração
@@ -25,6 +28,8 @@ type Config struct {
 	TracingEnabled bool
 	MetricsEnabled bool
 	LoggingEnabled bool
+
+	Sampler trace.Sampler
 }
 
 type Option func(*Config)
@@ -121,5 +126,37 @@ func WithMetrics() Option {
 func WithLogging() Option {
 	return func(config *Config) {
 		config.LoggingEnabled = true
+	}
+}
+
+func WithEnvConfig() Option {
+	return func(config *Config) {
+		if config.ServiceName == "" {
+			if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {
+				config.ServiceName = v
+			}
+		}
+
+		if config.CollectorEndpoint == "" {
+			if v := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); v != "" {
+				config.CollectorEndpoint = v
+			}
+		}
+
+		if config.Environment == "development" {
+			if v := os.Getenv("APP_ENV"); v != "" {
+				config.Environment = v
+			}
+		}
+
+		if v := os.Getenv("OTEL_INSECURE"); v == "true" {
+			config.Insecure = true
+		}
+	}
+}
+
+func WithSampler(sampler trace.Sampler) Option {
+	return func(config *Config) {
+		config.Sampler = sampler
 	}
 }

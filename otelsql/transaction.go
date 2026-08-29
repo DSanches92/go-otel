@@ -1,4 +1,4 @@
-package sql
+package otelsql
 
 import (
 	"context"
@@ -10,7 +10,7 @@ type Transaction struct {
 	database    *Database
 }
 
-func (transaction *Transaction) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (transaction *Transaction) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	ctx, span := transaction.database.startSpan(ctx, "sql.query")
 	defer span.End()
 
@@ -25,7 +25,22 @@ func (transaction *Transaction) QueryContext(ctx context.Context, query string, 
 	return rows, nil
 }
 
-func (transaction *Transaction) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+func (transaction *Transaction) QueryRowContext(ctx context.Context, query string, args ...any) (*Row, error) {
+	ctx, span := transaction.database.startSpan(ctx, "sql.query")
+	defer span.End()
+
+	transaction.database.setQueryAttributes(span, query, args)
+
+	rows, err := transaction.transaction.QueryContext(ctx, query, args...)
+	if err != nil {
+		recordError(span, err)
+		return nil, err
+	}
+
+	return &Row{rows: rows}, nil
+}
+
+func (transaction *Transaction) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	ctx, span := transaction.database.startSpan(ctx, "sql.exec")
 	defer span.End()
 

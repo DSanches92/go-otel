@@ -1,9 +1,9 @@
-package nats_test
+package otelnats_test
 
 import (
 	"testing"
 
-	natsotel "github.com/DSanches92/go-otel/src/nats"
+	"github.com/DSanches92/go-otel/otelnats"
 	"github.com/nats-io/nats.go"
 )
 
@@ -16,7 +16,7 @@ func newMessageWithHeader() *nats.Msg {
 func TestCarrier_Set(test *testing.T) {
 	test.Run("deve inserir chave e valor no header da mensagem", func(test *testing.T) {
 		msg := newMessageWithHeader()
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 
 		carrier.Set("traceparent", "00-abc123-def456-01")
 
@@ -29,7 +29,7 @@ func TestCarrier_Set(test *testing.T) {
 	test.Run("deve sobrescrever valor se a chave já existir", func(test *testing.T) {
 		msg := newMessageWithHeader()
 		msg.Header.Set("traceparent", "valor-antigo")
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 
 		carrier.Set("traceparent", "valor-novo")
 
@@ -41,7 +41,7 @@ func TestCarrier_Set(test *testing.T) {
 
 	test.Run("não deve entrar em panic quando Header é nil", func(test *testing.T) {
 		msg := &nats.Msg{} // Header nil intencionalmente
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 
 		defer func() {
 			if r := recover(); r != nil {
@@ -56,7 +56,7 @@ func TestCarrier_Set(test *testing.T) {
 func TestCarrier_Get(test *testing.T) {
 	test.Run("deve retornar o valor de uma chave existente", func(test *testing.T) {
 		msg := newMessageWithHeader()
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 		carrier.Set("traceparent", "00-abc123-def456-01")
 
 		got := carrier.Get("traceparent")
@@ -68,7 +68,7 @@ func TestCarrier_Get(test *testing.T) {
 
 	test.Run("deve retornar string vazia para chave inexistente", func(test *testing.T) {
 		msg := newMessageWithHeader()
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 
 		got := carrier.Get("chave-que-nao-existe")
 
@@ -80,7 +80,7 @@ func TestCarrier_Get(test *testing.T) {
 	test.Run("deve ser case-insensitive ao buscar chave", func(test *testing.T) {
 		msg := newMessageWithHeader()
 		msg.Header.Set("Traceparent", "00-abc123-def456-01")
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 
 		variantes := []string{"traceparent", "TRACEPARENT", "Traceparent", "trACEparent"}
 
@@ -96,7 +96,7 @@ func TestCarrier_Get(test *testing.T) {
 
 	test.Run("não deve entrar em panic quando Header é nil", func(test *testing.T) {
 		msg := &nats.Msg{} // Header nil intencionalmente
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 
 		defer func() {
 			if r := recover(); r != nil {
@@ -117,7 +117,7 @@ func TestCarrier_Keys(test *testing.T) {
 		msg := newMessageWithHeader()
 		msg.Header.Set("traceparent", "00-abc123-def456-01")
 		msg.Header.Set("tracestate", "rojo=00f067")
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 
 		keys := carrier.Keys()
 
@@ -128,7 +128,7 @@ func TestCarrier_Keys(test *testing.T) {
 
 	test.Run("deve retornar slice vazio quando não há headers", func(test *testing.T) {
 		msg := newMessageWithHeader()
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 
 		keys := carrier.Keys()
 
@@ -139,7 +139,7 @@ func TestCarrier_Keys(test *testing.T) {
 
 	test.Run("não deve entrar em panic quando Header é nil", func(test *testing.T) {
 		msg := &nats.Msg{}
-		carrier := natsotel.NewCarrier(msg)
+		carrier := otelnats.NewCarrier(msg)
 
 		defer func() {
 			if r := recover(); r != nil {

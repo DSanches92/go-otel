@@ -1,0 +1,31 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - unused
+    - ineffassign
+    - gocritic
+    - revive
+  settings:
+    revive:
+      rules:
+        # Requerer doc comment em todo identificador exportado é um objetivo
+        # válido, mas documentar a API pública inteira de uma vez é um
+        # esforço à parte — desabilitado aqui para manter o lint focado em
+        # bugs reais; pode ser revisitado em uma rodada de documentação.
+        - name: exported
+          disabled: true
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
