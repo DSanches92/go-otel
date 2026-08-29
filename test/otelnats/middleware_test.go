@@ -119,6 +119,48 @@ func TestTracer_Subscribe(test *testing.T) {
 	})
 }
 
+func TestTracer_QueueSubscribe(test *testing.T) {
+	test.Run("deve incluir o grupo de fila no nome do span", func(test *testing.T) {
+		recorder := tracetest.NewSpanRecorder()
+		provider := sdktrace.NewTracerProvider(
+			sdktrace.WithSpanProcessor(recorder),
+		)
+
+		srv, nc := runNATSServer()
+		defer srv.Shutdown()
+		defer nc.Close()
+
+		nt := otelnats.NewTracer(provider.Tracer("test"))
+		received := make(chan struct{}, 1)
+
+		sub, err := nt.QueueSubscribe(nc, "orders.created", "workers", func(ctx context.Context, msg *nats.Msg) {
+			received <- struct{}{}
+		})
+		if err != nil {
+			test.Fatalf("queue subscribe error: %s", err)
+		}
+		defer sub.Unsubscribe()
+
+		nc.Publish("orders.created", []byte("hello"))
+		nc.Flush()
+
+		select {
+		case <-received:
+		case <-time.After(time.Second):
+			test.Fatal("timeout aguardando mensagem")
+		}
+
+		time.Sleep(100 * time.Millisecond)
+		spans := recorder.Ended()
+		if len(spans) == 0 {
+			test.Fatal("esperado ao menos 1 span, obtido 0")
+		}
+		if spans[0].Name() != "SUBSCRIBE orders.created [workers]" {
+			test.Errorf("esperado 'SUBSCRIBE orders.created [workers]', obtido '%s'", spans[0].Name())
+		}
+	})
+}
+
 func TestTracer_Publish(test *testing.T) {
 	test.Run("deve criar span ao publicar mensagem", func(test *testing.T) {
 		recorder := tracetest.NewSpanRecorder()

@@ -19,7 +19,6 @@ type fakeDriver struct{ err error }
 type fakeConn struct{ err error }
 type fakeStmt struct{ err error }
 type fakeRows struct {
-	closed  bool
 	calledN int
 }
 
@@ -258,6 +257,32 @@ func TestDB_QueryContext(test *testing.T) {
 		defer rows.Close()
 
 		assertAttribute(test, recorder.Ended()[0], "db.operation", "SELECT")
+	})
+
+	test.Run("deve reconhecer operações DDL (CREATE, ALTER, DROP)", func(test *testing.T) {
+		casos := []struct {
+			query     string
+			operation string
+		}{
+			{"CREATE TABLE orders (id INT)", "CREATE"},
+			{"ALTER TABLE orders ADD COLUMN name VARCHAR(255)", "ALTER"},
+			{"DROP TABLE orders", "DROP"},
+		}
+
+		for _, caso := range casos {
+			test.Run(caso.operation, func(test *testing.T) {
+				provider, recorder := newTracerProviderInMemory(test)
+				sqlDB := newSQLDB(test)
+				database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+					otelsql.WithDBSystem("oracle"),
+				)
+
+				rows, _ := database.QueryContext(context.Background(), caso.query)
+				defer rows.Close()
+
+				assertAttribute(test, recorder.Ended()[0], "db.operation", caso.operation)
+			})
+		}
 	})
 
 	test.Run("não deve registrar db.statement por default", func(test *testing.T) {

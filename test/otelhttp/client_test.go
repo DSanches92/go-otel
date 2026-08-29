@@ -18,7 +18,7 @@ func TestTransport_Span(test *testing.T) {
 			sdktrace.WithSpanProcessor(recorder),
 		)
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
@@ -82,7 +82,7 @@ func TestTransport_Span(test *testing.T) {
 			sdktrace.WithSpanProcessor(recorder),
 		)
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		}))
 		defer server.Close()
@@ -127,7 +127,7 @@ func TestTransport_WithRoundTripper(test *testing.T) {
 			return http.DefaultTransport.RoundTrip(req)
 		})
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()

@@ -211,7 +211,7 @@ type Row struct {
 }
 
 func (row *Row) Scan(dest ...any) error {
-	defer row.rows.Close()
+	defer func() { _ = row.rows.Close() }()
 
 	if !row.rows.Next() {
 		if err := row.rows.Err(); err != nil {
@@ -236,7 +236,8 @@ func extractOperation(query string) string {
 
 	switch strings.ToUpper(tokens[0]) {
 	case "SELECT", "INSERT", "UPDATE", "DELETE",
-		"WITH", "CALL", "MERGE", "REPLACE", "TRUNCATE":
+		"WITH", "CALL", "MERGE", "REPLACE", "TRUNCATE",
+		"CREATE", "ALTER", "DROP":
 		return tokens[0]
 	default:
 		return "UNKNOWN"

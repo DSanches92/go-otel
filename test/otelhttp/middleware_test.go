@@ -25,7 +25,7 @@ func newTracerProviderInMemory(test *testing.T) (*sdktrace.TracerProvider, *trac
 }
 
 func handlerWithStatus(status int) http.HandlerFunc {
-	return func(writer http.ResponseWriter, req *http.Request) {
+	return func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(status)
 	}
 }
@@ -35,7 +35,10 @@ func handlerWithStatus(status int) http.HandlerFunc {
 func TestMiddleware_Span(test *testing.T) {
 	test.Run("deve criar um span para cada request", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider)
+		middleware, err := otelhttp.NewMiddleware(provider)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/orders", nil)
 		rec := httptest.NewRecorder()
@@ -50,7 +53,10 @@ func TestMiddleware_Span(test *testing.T) {
 
 	test.Run("deve nomear o span com método e rota", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider)
+		middleware, err := otelhttp.NewMiddleware(provider)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/orders", nil)
 		rec := httptest.NewRecorder()
@@ -69,7 +75,10 @@ func TestMiddleware_Span(test *testing.T) {
 func TestMiddleware_Attributes(test *testing.T) {
 	test.Run("deve registrar o método HTTP no span", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider)
+		middleware, err := otelhttp.NewMiddleware(provider)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodPost, "/orders", nil)
 		rec := httptest.NewRecorder()
@@ -82,7 +91,10 @@ func TestMiddleware_Attributes(test *testing.T) {
 
 	test.Run("deve registrar o path no span", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider)
+		middleware, err := otelhttp.NewMiddleware(provider)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/orders/123", nil)
 		rec := httptest.NewRecorder()
@@ -95,7 +107,10 @@ func TestMiddleware_Attributes(test *testing.T) {
 
 	test.Run("deve registrar o status code no span", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider)
+		middleware, err := otelhttp.NewMiddleware(provider)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/orders", nil)
 		rec := httptest.NewRecorder()
@@ -125,7 +140,10 @@ func TestMiddleware_ErrorStatus(test *testing.T) {
 		for _, caso := range casos {
 			test.Run(caso.nome, func(test *testing.T) {
 				provider, recorder := newTracerProviderInMemory(test)
-				middleware := otelhttp.NewMiddleware(provider)
+				middleware, err := otelhttp.NewMiddleware(provider)
+				if err != nil {
+					test.Fatalf("NewMiddleware: %v", err)
+				}
 
 				req := httptest.NewRequest(http.MethodGet, "/orders", nil)
 				rec := httptest.NewRecorder()
@@ -155,7 +173,10 @@ func TestMiddleware_ErrorStatus(test *testing.T) {
 		for _, caso := range casos {
 			test.Run(caso.nome, func(test *testing.T) {
 				provider, recorder := newTracerProviderInMemory(test)
-				middleware := otelhttp.NewMiddleware(provider)
+				middleware, err := otelhttp.NewMiddleware(provider)
+				if err != nil {
+					test.Fatalf("NewMiddleware: %v", err)
+				}
 
 				req := httptest.NewRequest(http.MethodGet, "/orders", nil)
 				rec := httptest.NewRecorder()
@@ -176,7 +197,10 @@ func TestMiddleware_ErrorStatus(test *testing.T) {
 func TestMiddleware_Propagation(test *testing.T) {
 	test.Run("deve propagar contexto de trace via headers W3C", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider)
+		middleware, err := otelhttp.NewMiddleware(provider)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/orders", nil)
 		req.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
@@ -193,7 +217,10 @@ func TestMiddleware_Propagation(test *testing.T) {
 
 	test.Run("deve criar novo trace quando não há contexto no header", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider)
+		middleware, err := otelhttp.NewMiddleware(provider)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/orders", nil)
 		rec := httptest.NewRecorder()
@@ -212,11 +239,14 @@ func TestMiddleware_Propagation(test *testing.T) {
 func TestMiddleware_Route(test *testing.T) {
 	test.Run("deve registrar http.route no span", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider,
-			otelhttp.WithRouteResolver(func(req *http.Request) string {
+		middleware, err := otelhttp.NewMiddleware(provider,
+			otelhttp.WithRouteResolver(func(_ *http.Request) string {
 				return "/orders/{id}"
 			}),
 		)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/orders/123", nil)
 		rec := httptest.NewRecorder()
@@ -229,11 +259,14 @@ func TestMiddleware_Route(test *testing.T) {
 
 	test.Run("deve usar o padrão resolvido como nome do span", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider,
-			otelhttp.WithRouteResolver(func(req *http.Request) string {
+		middleware, err := otelhttp.NewMiddleware(provider,
+			otelhttp.WithRouteResolver(func(_ *http.Request) string {
 				return "/orders/{id}"
 			}),
 		)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/orders/42", nil)
 		rec := httptest.NewRecorder()
@@ -252,7 +285,10 @@ func TestMiddleware_Route(test *testing.T) {
 func TestMiddleware_Compatibility(test *testing.T) {
 	test.Run("deve ser compatível com net/http padrão", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider)
+		middleware, err := otelhttp.NewMiddleware(provider)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
@@ -271,9 +307,12 @@ func TestMiddleware_Compatibility(test *testing.T) {
 
 	test.Run("deve retornar handler que implementa http.Handler", func(test *testing.T) {
 		provider, _ := newTracerProviderInMemory(test)
-		middleware := otelhttp.NewMiddleware(provider)
+		middleware, err := otelhttp.NewMiddleware(provider)
+		if err != nil {
+			test.Fatalf("NewMiddleware: %v", err)
+		}
 
-		var _ http.Handler = middleware(handlerWithStatus(http.StatusOK))
+		var _ = middleware(handlerWithStatus(http.StatusOK))
 	})
 }
 

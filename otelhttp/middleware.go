@@ -48,7 +48,7 @@ func WithMeter(meter metric.Meter) Option {
 	}
 }
 
-func NewMiddleware(provider trace.TracerProvider, opts ...Option) func(http.Handler) http.Handler {
+func NewMiddleware(provider trace.TracerProvider, opts ...Option) (func(http.Handler) http.Handler, error) {
 	cfg := &config{}
 	for _, opt := range opts {
 		opt(cfg)
@@ -62,7 +62,7 @@ func NewMiddleware(provider trace.TracerProvider, opts ...Option) func(http.Hand
 		var err error
 		metrics, err = NewMetrics(cfg.meter)
 		if err != nil {
-			metrics = nil
+			return nil, fmt.Errorf("otelhttp.NewMiddleware: creating metrics: %w", err)
 		}
 	}
 
@@ -117,7 +117,7 @@ func NewMiddleware(provider trace.TracerProvider, opts ...Option) func(http.Hand
 				span.SetStatus(codes.Error, http.StatusText(resWriter.status))
 			}
 		})
-	}
+	}, nil
 }
 
 type responseWriter struct {

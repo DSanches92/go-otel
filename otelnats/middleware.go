@@ -2,6 +2,7 @@ package otelnats
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel/codes"
@@ -55,7 +56,7 @@ func (t *Tracer) QueueSubscribe(nc *nats.Conn, subject, queue string, handler fu
 	return nc.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
 		carrier := NewCarrier(msg)
 		ctx := t.propagator.Extract(context.Background(), carrier)
-		ctx, span := t.tracer.Start(ctx, "SUBSCRIBE "+subject)
+		ctx, span := t.tracer.Start(ctx, fmt.Sprintf("SUBSCRIBE %s [%s]", subject, queue))
 		defer span.End()
 
 		handler(ctx, msg)
