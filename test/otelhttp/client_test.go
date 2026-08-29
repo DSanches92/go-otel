@@ -1,11 +1,11 @@
-package http_test
+package otelhttp_test
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	httpgotel "github.com/DSanches92/go-otel/internal/http"
+	"github.com/DSanches92/go-otel/otelhttp"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -23,7 +23,7 @@ func TestTransport_Span(test *testing.T) {
 		}))
 		defer server.Close()
 
-		transport := httpgotel.NewTransport(provider)
+		transport := otelhttp.NewTransport(provider)
 		client := &http.Client{Transport: transport}
 
 		req, _ := http.NewRequest(http.MethodGet, server.URL, nil)
@@ -56,7 +56,7 @@ func TestTransport_Span(test *testing.T) {
 		}))
 		defer server.Close()
 
-		transport := httpgotel.NewTransport(provider)
+		transport := otelhttp.NewTransport(provider)
 		client := &http.Client{Transport: transport}
 
 		req, _ := http.NewRequest(http.MethodGet, server.URL, nil)
@@ -87,7 +87,7 @@ func TestTransport_Span(test *testing.T) {
 		}))
 		defer server.Close()
 
-		transport := httpgotel.NewTransport(provider)
+		transport := otelhttp.NewTransport(provider)
 		client := &http.Client{Transport: transport}
 
 		req, _ := http.NewRequest(http.MethodGet, server.URL, nil)
@@ -121,19 +121,19 @@ func TestTransport_WithRoundTripper(test *testing.T) {
 			sdktrace.WithSpanProcessor(recorder),
 		)
 
-	called := false
-	customRT := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		called = true
-		return http.DefaultTransport.RoundTrip(req)
-	})
+		called := false
+		customRT := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			called = true
+			return http.DefaultTransport.RoundTrip(req)
+		})
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
 
-		transport := httpgotel.NewTransport(provider,
-			httpgotel.WithRoundTripper(customRT),
+		transport := otelhttp.NewTransport(provider,
+			otelhttp.WithRoundTripper(customRT),
 		)
 		client := &http.Client{Transport: transport}
 

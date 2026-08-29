@@ -1,4 +1,4 @@
-package http_test
+package otelsql_test
 
 import (
 	"testing"
@@ -7,5 +7,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	goleak.VerifyTestMain(m,
+		goleak.IgnoreCurrent(),
+	)
 }

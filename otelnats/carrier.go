@@ -1,4 +1,4 @@
-package nats
+package otelnats
 
 import (
 	"net/textproto"

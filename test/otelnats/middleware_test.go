@@ -1,11 +1,11 @@
-package nats_test
+package otelnats_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	natsotel "github.com/DSanches92/go-otel/internal/nats"
+	"github.com/DSanches92/go-otel/otelnats"
 	"github.com/nats-io/nats-server/v2/server"
 	natsserver "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
@@ -42,7 +42,7 @@ func TestTracer_Subscribe(test *testing.T) {
 		defer srv.Shutdown()
 		defer nc.Close()
 
-		nt := natsotel.NewTracer(provider.Tracer("test"))
+		nt := otelnats.NewTracer(provider.Tracer("test"))
 		received := make(chan struct{}, 1)
 
 		sub, err := nt.Subscribe(nc, "orders.test", func(ctx context.Context, msg *nats.Msg) {
@@ -86,7 +86,7 @@ func TestTracer_Subscribe(test *testing.T) {
 		defer srv.Shutdown()
 		defer nc.Close()
 
-		nt := natsotel.NewTracer(provider.Tracer("test"))
+		nt := otelnats.NewTracer(provider.Tracer("test"))
 		received := make(chan struct{}, 1)
 		var subscriberTraceID string
 
@@ -130,7 +130,7 @@ func TestTracer_Publish(test *testing.T) {
 		defer srv.Shutdown()
 		defer nc.Close()
 
-		nt := natsotel.NewTracer(provider.Tracer("test"))
+		nt := otelnats.NewTracer(provider.Tracer("test"))
 
 		nc.Subscribe("orders.publish", func(msg *nats.Msg) {})
 		nc.Flush()

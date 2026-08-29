@@ -1,4 +1,4 @@
-package sql
+package otelsql
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	ErrDBNil            = errors.New("sqlgotel: sql.DB must not be nil")
-	ErrDBSystemRequired = errors.New("sqlgotel: WithDBSystem is required")
+	ErrDBNil            = errors.New("otelsql: sql.DB must not be nil")
+	ErrDBSystemRequired = errors.New("otelsql: WithDBSystem is required")
 )
 
 const (

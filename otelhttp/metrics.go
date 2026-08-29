@@ -1,4 +1,4 @@
-package http
+package otelhttp
 
 import (
 	"go.opentelemetry.io/otel/metric"

@@ -1,4 +1,4 @@
-package sql_test
+package otelsql_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"io"
 	"testing"
 
-	sqlgotel "github.com/DSanches92/go-otel/internal/sql"
+	"github.com/DSanches92/go-otel/otelsql"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -149,8 +149,8 @@ func TestDB_NewDB(test *testing.T) {
 		provider, _ := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
 
-		database, err := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, err := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		if err != nil {
@@ -165,7 +165,7 @@ func TestDB_NewDB(test *testing.T) {
 		provider, _ := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
 
-		_, err := sqlgotel.NewDB(sqlDB, provider.Tracer("test"))
+		_, err := otelsql.NewDB(sqlDB, provider.Tracer("test"))
 
 		if err == nil {
 			test.Error("esperado erro quando DBSystem está ausente")
@@ -175,8 +175,8 @@ func TestDB_NewDB(test *testing.T) {
 	test.Run("deve retornar erro quando sql.DB é nil", func(test *testing.T) {
 		provider, _ := newTracerProviderInMemory(test)
 
-		_, err := sqlgotel.NewDB(nil, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		_, err := otelsql.NewDB(nil, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		if err == nil {
@@ -188,8 +188,8 @@ func TestDB_NewDB(test *testing.T) {
 		provider, _ := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
 
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		if database.StatementRecording() {
@@ -201,8 +201,8 @@ func TestDB_NewDB(test *testing.T) {
 		provider, _ := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
 
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		if database.ParameterRecording() {
@@ -215,8 +215,8 @@ func TestDB_QueryContext(test *testing.T) {
 	test.Run("deve criar span com nome sql.query", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		rows, err := database.QueryContext(context.Background(), "SELECT 1 FROM dual")
@@ -237,8 +237,8 @@ func TestDB_QueryContext(test *testing.T) {
 	test.Run("deve registrar db.system no span", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		rows, _ := database.QueryContext(context.Background(), "SELECT 1 FROM dual")
@@ -250,8 +250,8 @@ func TestDB_QueryContext(test *testing.T) {
 	test.Run("deve registrar db.operation como SELECT", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		rows, _ := database.QueryContext(context.Background(), "SELECT 1 FROM dual")
@@ -263,8 +263,8 @@ func TestDB_QueryContext(test *testing.T) {
 	test.Run("não deve registrar db.statement por default", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		rows, _ := database.QueryContext(context.Background(), "SELECT 1 FROM dual")
@@ -276,9 +276,9 @@ func TestDB_QueryContext(test *testing.T) {
 	test.Run("deve registrar db.statement quando habilitado", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
-			sqlgotel.WithStatementRecording(true),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
+			otelsql.WithStatementRecording(true),
 		)
 
 		rows, _ := database.QueryContext(context.Background(), "SELECT 1 FROM dual")
@@ -290,8 +290,8 @@ func TestDB_QueryContext(test *testing.T) {
 	test.Run("deve marcar span como erro quando query falha", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDBWithError(test, errors.New("connection refused"))
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		_, err := database.QueryContext(context.Background(), "SELECT 1 FROM dual")
@@ -310,8 +310,8 @@ func TestDB_ExecContext(test *testing.T) {
 	test.Run("deve criar span com nome sql.exec", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		_, err := database.ExecContext(context.Background(), "INSERT INTO orders VALUES (1)")
@@ -328,8 +328,8 @@ func TestDB_ExecContext(test *testing.T) {
 	test.Run("deve registrar db.operation como INSERT", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		database.ExecContext(context.Background(), "INSERT INTO orders VALUES (1)")
@@ -340,8 +340,8 @@ func TestDB_ExecContext(test *testing.T) {
 	test.Run("deve marcar span como erro quando exec falha", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDBWithError(test, errors.New("table not found"))
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		_, err := database.ExecContext(context.Background(), "INSERT INTO orders VALUES (1)")
@@ -360,8 +360,8 @@ func TestDB_BeginTx(test *testing.T) {
 	test.Run("deve criar span com nome sql.transaction.begin", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		transaction, err := database.BeginTx(context.Background(), nil)
@@ -384,8 +384,8 @@ func TestTx_Commit(test *testing.T) {
 	test.Run("deve criar span com nome sql.transaction.commit", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		transaction, _ := database.BeginTx(context.Background(), nil)
@@ -411,8 +411,8 @@ func TestTx_Rollback(test *testing.T) {
 	test.Run("deve criar span com nome sql.transaction.rollback", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		transaction, _ := database.BeginTx(context.Background(), nil)
@@ -438,8 +438,8 @@ func TestTx_QueryContext(test *testing.T) {
 	test.Run("deve criar span com nome sql.query dentro da transação", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		transaction, _ := database.BeginTx(context.Background(), nil)
@@ -468,8 +468,8 @@ func TestTx_QueryRowContext(test *testing.T) {
 	test.Run("deve retornar Row sem erro dentro da transação", func(test *testing.T) {
 		provider, _ := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		transaction, _ := database.BeginTx(context.Background(), nil)
@@ -490,8 +490,8 @@ func TestTx_ExecContext(test *testing.T) {
 	test.Run("deve criar span com nome sql.exec dentro da transação", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		transaction, _ := database.BeginTx(context.Background(), nil)
@@ -519,8 +519,8 @@ func TestDB_QueryRowContext(test *testing.T) {
 	test.Run("deve retornar Row sem erro para query válida", func(test *testing.T) {
 		provider, _ := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		row, err := database.QueryRowContext(context.Background(), "SELECT 1 FROM dual")
@@ -539,8 +539,8 @@ func TestDB_QueryRowContext(test *testing.T) {
 	test.Run("deve criar span sql.query com Scan", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		row, _ := database.QueryRowContext(context.Background(), "SELECT 1 FROM dual")
@@ -559,8 +559,8 @@ func TestDB_QueryRowContext(test *testing.T) {
 	test.Run("deve retornar erro quando query falha", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDBWithError(test, errors.New("connection refused"))
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		row, err := database.QueryRowContext(context.Background(), "SELECT 1 FROM dual")
@@ -588,8 +588,8 @@ func TestRows_Span(test *testing.T) {
 	test.Run("span deve permanecer aberto enquanto Rows não for fechado", func(test *testing.T) {
 		provider, recorder := newTracerProviderInMemory(test)
 		sqlDB := newSQLDB(test)
-		database, _ := sqlgotel.NewDB(sqlDB, provider.Tracer("test"),
-			sqlgotel.WithDBSystem("oracle"),
+		database, _ := otelsql.NewDB(sqlDB, provider.Tracer("test"),
+			otelsql.WithDBSystem("oracle"),
 		)
 
 		rows, _ := database.QueryContext(context.Background(), "SELECT 1 FROM dual")
