@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel/log"
@@ -25,6 +26,9 @@ type SDK struct {
 	loggerProvider    log.LoggerProvider
 	conn              *grpc.ClientConn
 	shutdownFunctions []shutdownFunc
+
+	slogLoggerOnce sync.Once
+	slogLogger     *slog.Logger
 }
 
 type shutdownFunc func(context.Context) error
@@ -46,6 +50,13 @@ func New(options ...Option) (*SDK, error) {
 	}
 
 	if err := sdk.initProviders(); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), sdk.config.Timeout)
+		defer cancel()
+
+		if shutdownErr := sdk.Shutdown(shutdownCtx); shutdownErr != nil {
+			return nil, fmt.Errorf("gotel.New: falha ao inicializar providers: %w (cleanup também falhou: %v)", err, shutdownErr)
+		}
+
 		return nil, fmt.Errorf("gotel.New: falha ao inicializar providers: %w", err)
 	}
 
@@ -87,11 +98,15 @@ func (sdk *SDK) Logger() log.Logger {
 }
 
 func (sdk *SDK) SlogLogger() *slog.Logger {
-	return otelslog.NewLogger(
-		sdk.config.ServiceName,
-		otelslog.WithLoggerProvider(sdk.loggerProvider),
-		otelslog.WithVersion(sdk.config.ServiceVersion),
-	)
+	sdk.slogLoggerOnce.Do(func() {
+		sdk.slogLogger = otelslog.NewLogger(
+			sdk.config.ServiceName,
+			otelslog.WithLoggerProvider(sdk.loggerProvider),
+			otelslog.WithVersion(sdk.config.ServiceVersion),
+		)
+	})
+
+	return sdk.slogLogger
 }
 
 // ---- Inicialização Interna
@@ -132,4 +147,12 @@ func (sdk *SDK) initProviders() error {
 
 func (sdk *SDK) TracerProvider() trace.TracerProvider {
 	return sdk.tracerProvider
+}
+
+func (sdk *SDK) MeterProvider() metric.MeterProvider {
+	return sdk.metricProvider
+}
+
+func (sdk *SDK) LoggerProvider() log.LoggerProvider {
+	return sdk.loggerProvider
 }
